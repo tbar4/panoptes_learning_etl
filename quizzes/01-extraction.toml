@@ -1,0 +1,118 @@
+# Concept-Check: Extraction (Part II)
+# Covers: TLE mod-10 checksum arithmetic, the tagged `Row` enum, which stage
+# owns parsing, dyn-Source object-safety, the epoch-year pivot.
+# Tracing programs are std-only and compiled by rustc at build time.
+
+# --- Tracing: the mod-10 checksum arithmetic ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+fn checksum(s: &str) -> u32 {
+    s.chars()
+        .map(|c| match c {
+            '0'..='9' => c.to_digit(10).unwrap(),
+            '-' => 1,
+            _ => 0,
+        })
+        .sum::<u32>()
+        % 10
+}
+
+fn main() {
+    // TLE rule: digits add, each '-' counts 1, letters/spaces count 0.
+    println!("{}", checksum("2 8-B7"));
+}
+"""
+answer.doesCompile = true
+answer.stdout = "8"
+context = """
+Walk the characters applying the TLE rule: `'2'`→2, `' '`→0, `'8'`→8, `'-'`→1, `'B'`→0, `'7'`→7. The sum is 18, and 18 mod 10 is **8**. The two things this catches: the minus sign contributes 1 (not 0, and not its "value"), and letters/spaces contribute 0. Miss the `'-' => 1` arm and you would compute 17 → 7, the classic broken checksum.
+"""
+id = "05f81b55-f77a-4aae-a2bf-02fed921a9d6"
+
+# --- Tracing: a generic method breaks dyn-compatibility ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+trait Source {
+    fn extract_as<T: Default>(&self) -> T;
+}
+
+fn schedule(_s: Box<dyn Source>) {}
+
+fn main() {
+    println!("scheduled");
+}
+"""
+answer.doesCompile = false
+context = """
+`extract_as` is **generic** over `T`, so there is no single function pointer to place in a vtable — a `Box<dyn Source>` cannot be built. The compiler rejects the `Box<dyn Source>` in `schedule`'s signature with `error[E0038]: the trait \"Source\" is not dyn compatible`. This is exactly why the real `Source`, `Transform`, and `Sink` traits use only monomorphic methods: the orchestrator must be able to hold them as trait objects, and one generic method would silently take that away.
+"""
+id = "9af58549-44b6-4dee-8cc6-5a239daea69f"
+
+# --- MultipleChoice: why Row is tagged ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "`Row` is declared `#[serde(tag = \"kind\", rename_all = \"snake_case\")]`. What does the `kind` tag buy the pipeline?"
+prompt.distractors = [
+  "It makes the JSON smaller by omitting the variant's fields",
+  "It lets serde skip validation of the row's fields",
+  "It is required by tokio for any type sent across an `.await`",
+]
+answer.answer = "It records which variant each line is, so one file can hold rows from every source and the reader can reconstruct the right variant without out-of-band knowledge"
+context = """
+`Row` is a single enum over `SpaceObject`, `Conjunction`, and `Launch` so that one `Sink` can accept the output of any pipeline. The `"kind"` field is the discriminant written to each line — it is how `panoptes-gen`, reading a mixed JSONL file, knows whether a given line is a launch or a conjunction and which variant to deserialize into. Without the tag, two variants that happened to share a field shape would be ambiguous.
+"""
+id = "728cfc1c-a25f-474d-95c7-b031b6bc3d10"
+
+# --- ShortAnswer: which stage owns parsing ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "In the E/T/L split, which stage parses raw bytes into normalized domain rows (and is therefore where validation happens)? Name the trait."
+answer.answer = "Transform"
+answer.alternatives = ["the Transform trait", "T", "transform", "the T stage"]
+context = """
+Parsing lives in **Transform** (the T stage). `Source::extract` only returns raw bytes (`RawRecord`); `Sink::load` only writes finished `Row`s. `Transform::transform` is the pure, synchronous function that turns `RawRecord` into `Vec<Row>` — and because its output type is your domain model (a `NoradId`, an `OrbitClass`, not bare strings), a successful transform is itself the validation. That purity is also why it needs no runtime and is trivial to unit-test with a hand-written `RawRecord`.
+"""
+id = "0b6798d6-6384-42b4-9a41-86c80a687e0b"
+
+# --- MultipleChoice: dyn-Source object safety, conceptual ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "The orchestrator (a later arc) holds a `Box<dyn Source>` and calls `.extract().await` without knowing the concrete type. `Source::extract` is `async` — normally not dyn-compatible. What makes it work here?"
+prompt.distractors = [
+  "The `Send + Sync` bounds on the trait make async methods dyn-compatible",
+  "The orchestrator monomorphizes a copy of `extract` for each concrete source",
+  "`async fn` in traits has always been dyn-compatible without any help",
+]
+answer.answer = "`#[async_trait]` rewrites `async fn extract` into a method returning a boxed future — a single concrete signature a vtable can hold"
+context = """
+A bare `async fn` in a trait desugars to an opaque, per-impl return type, which a vtable cannot represent uniformly. `#[async_trait]` rewrites each async method to return `Pin<Box<dyn Future + Send>>` — one concrete signature across all impls — which *is* vtable-friendly. That is the whole reason `Source` and `Sink` carry the attribute: it is what lets the orchestrator schedule any source through a trait object. (`Send + Sync` are needed for cross-thread scheduling, but they are not what fixes the async-in-vtable problem.)
+"""
+id = "8840b6a7-4973-4b6c-bf7a-eb99d7058b8b"
+
+# --- MultipleChoice: checksum minus-sign rule ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "In the TLE mod-10 checksum, columns 1-68 are summed. What does a minus sign (`-`) contribute, versus a plus sign (`+`) or a period (`.`)?"
+prompt.distractors = [
+  "`-` contributes 0; `+` and `.` each contribute 1",
+  "`-`, `+`, and `.` all contribute 0 (only digits count)",
+  "`-` subtracts 1 from the running sum; `+` adds 1; `.` is 0",
+]
+answer.answer = "`-` contributes 1; `+` and `.` (and letters and spaces) each contribute 0"
+context = """
+The rule: each digit adds its own value, each `'-'` adds 1, and everything else — plus signs, periods, letters, spaces — adds 0. Forgetting the `'-' => 1` arm is the single most common checksum bug: it passes on lines with no minus signs and fails on lines that carry them (drag terms and mean-motion derivatives routinely do). Also note the sum stops at column 68 — the 69th character is the checksum digit being verified, so it is never included.
+"""
+id = "e8c39181-927b-4e7a-adb2-275e5cbd2005"
+
+# --- ShortAnswer: epoch year pivot ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "A TLE epoch year field reads `08`. Applying the TLE century pivot (57-99 => 19xx, 00-56 => 20xx), what four-digit year does `08` decode to?"
+answer.answer = "2008"
+answer.alternatives = ["2008 AD"]
+context = """
+`08` is below the 57 pivot, so it decodes to `2000 + 8` = **2008** (not 1908). The pivot exists because two digits cannot span a century; 1957 is the low end because nothing was in orbit before Sputnik. Get the pivot backwards and every recent satellite — including anything with a `26` epoch from 2026 — jumps to the early 1900s, decades before spaceflight.
+"""
+id = "9241337e-3ceb-4db3-a228-cfe16e61b6b0"

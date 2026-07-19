@@ -28,7 +28,7 @@ The single most valuable thing you can do in a build chapter is **write down you
 
 ## The concept-check quizzes
 
-Each part ends with one graded quiz, and only the quiz page carries the `{{#quiz}}` include. These are not busywork — they target the exact misconceptions that cause bugs three arcs later: retrying a `404` forever, confusing two integer ids, forgetting which stage owns parsing. Answer honestly before revealing. Some questions are **Tracing** questions: a short program whose output — or whose refusal to compile — you must predict. Those are compiled by the real Rust compiler when the book builds, so the answer is not a matter of opinion.
+Each part ends with one graded quiz, carried only on that part's quiz page. These are not busywork — they target the exact misconceptions that cause bugs three arcs later: retrying a `404` forever, confusing two integer ids, forgetting which stage owns parsing. Answer honestly before revealing. Some questions are **Tracing** questions: a short program whose output — or whose refusal to compile — you must predict. Those are compiled by the real Rust compiler when the book builds, so the answer is not a matter of opinion.
 
 ## Assumed toolkit — if you skipped the first course
 
