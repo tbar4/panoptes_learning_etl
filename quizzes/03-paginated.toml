@@ -1,0 +1,139 @@
+# Concept-Check: Pagination (Part IV)
+# Covers: cursor pagination termination + cycle guard, transient-vs-permanent
+# retry + capped exponential backoff + Retry-After, content-addressed idempotency.
+# Tracing programs are std-only and compiled by rustc at build time.
+
+# --- Tracing: capped exponential backoff sequence ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+fn backoff(base: u64, cap: u64, attempt: u32) -> u64 {
+    let factor = 2u32.saturating_pow(attempt - 1) as u64;
+    (base * factor).min(cap)
+}
+
+fn main() {
+    // Capped exponential backoff: base 200ms, cap 1000ms, attempts 1..=5.
+    let seq: Vec<u64> = (1..=5).map(|a| backoff(200, 1000, a)).collect();
+    println!("{seq:?}");
+}
+"""
+answer.doesCompile = true
+answer.stdout = "[200, 400, 800, 1000, 1000]"
+context = """
+Each attempt doubles the delay: attempt 1 uses factor `2^0 = 1` (200), attempt 2 factor 2 (400), attempt 3 factor 4 (800), attempt 4 factor 8 → 1600 **clamped to the 1000 cap**, attempt 5 factor 16 → 3200 also clamped. So `[200, 400, 800, 1000, 1000]`. This is exactly the branch `with_retry` takes when the error carries no `Retry-After`: `(base_delay * 2^(attempt-1)).min(max_delay)`. The cap is what stops backoff from growing without bound after a long streak of failures.
+"""
+id = "bdbe85d2-00ac-4f0c-a695-b565ffae22ce"
+
+# --- Tracing: the pagination cycle guard ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+use std::collections::HashSet;
+
+fn main() {
+    let next = |u: &str| match u {
+        "p1" => Some("p2"),
+        "p2" => Some("p1"), // points back — a cycle
+        _ => None,
+    };
+    let mut visited = HashSet::new();
+    let mut url = Some("p1");
+    let mut fetched = 0;
+    while let Some(u) = url {
+        if !visited.insert(u) {
+            println!("cycle after {fetched} fetches");
+            break;
+        }
+        fetched += 1;
+        url = next(u);
+    }
+}
+"""
+answer.doesCompile = true
+answer.stdout = "cycle after 2 fetches"
+context = """
+Trace the loop: `p1` is new (`insert` returns `true`), fetch it → `fetched = 1`, next is `p2`. `p2` is new, fetch it → `fetched = 2`, next is `p1`. Now `p1` is already in the set, so `insert` returns `false`, `!false` is `true`, and the guard prints **cycle after 2 fetches** and breaks. Without the `visited` set this loop would run forever, since `next` alternates `p1`/`p2` endlessly. `HashSet::insert` returning `false` on a repeat is the entire cycle-detection mechanism — it is what `SpaceDevsSource::extract` uses to make termination a property of its own code rather than a promise it trusts the server to keep.
+"""
+id = "06173184-1ccf-4d04-ba6f-3769a010ddf9"
+
+# --- Tracing: content-addressed dedup with the kind tag ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+use std::collections::HashSet;
+
+fn key(kind: &str, body: &str) -> String {
+    format!("{kind}:{body}")
+}
+
+fn main() {
+    let rows = [("launch", "A"), ("launch", "B"), ("launch", "A"), ("object", "A")];
+    let mut seen = HashSet::new();
+    let mut written = 0;
+    for (k, b) in rows {
+        if seen.insert(key(k, b)) {
+            written += 1;
+        }
+    }
+    println!("{written}");
+}
+"""
+answer.doesCompile = true
+answer.stdout = "3"
+context = """
+The keys are `launch:A` (new → written 1), `launch:B` (new → 2), `launch:A` again (a duplicate — `insert` returns `false`, skipped), and `object:A` (new → 3). Result: **3**. The last row shares the body `"A"` with the first but has a different `kind`, so its key `object:A` does not collide with `launch:A` — the `kind` tag is exactly what keeps two different entity types from being mistaken for each other. This is the idempotency logic of `IdempotentSink` in miniature: forward a row only when its content key was not already seen.
+"""
+id = "936c05ee-867e-415b-a447-f527d5cec9d9"
+
+# --- MultipleChoice: what with_retry retries, and how long it waits ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "A request fails with `429 Too Many Requests` carrying `Retry-After: 8`, mapped to `EtlError::RateLimited { retry_after_secs: 8 }`. The policy is `base_delay: 200ms`. What does `with_retry` do?"
+prompt.distractors = [
+  "Returns the error immediately — a 429 is a client error and not worth retrying",
+  "Retries after the computed 200ms exponential backoff, ignoring the header",
+  "Retries after 200ms on the first attempt and 8s only on later attempts",
+]
+answer.answer = "Retries after sleeping 8 seconds — the server-supplied Retry-After wins over the computed backoff"
+context = """
+`RateLimited` is transient (`is_transient()` is true), so `with_retry` retries it. When computing the delay it calls `err.retry_after()` first, and only falls back to the exponential formula when that returns `None`. A `429` populates `retry_after_secs`, so `retry_after()` returns `Some(8s)` and that wins — the server told you how long to wait, and respecting it is the whole point of the header. A `404`, by contrast, would be `EtlError::Permanent`, not transient, and would return immediately.
+"""
+id = "e5d0415c-c165-4aaa-8d9d-37f42a5e7cb7"
+
+# --- MultipleChoice: pagination termination and the cycle guard ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "`SpaceDevsSource::extract` follows the `next` cursor page by page. Under normal operation, what ends the loop — and why does the code also keep a `HashSet` of visited URLs?"
+prompt.distractors = [
+  "A fixed page limit ends it; the HashSet deduplicates rows across pages",
+  "The HashSet ends it once every URL has been seen; `next: null` is just an optimization",
+  "The loop runs a fixed number of times set by `limit=100`; the HashSet caches responses",
+]
+answer.answer = "`next: null` (deserialized to `None`) ends the loop; the HashSet guards against a buggy server whose `next` points back at an already-fetched page, which would otherwise loop forever"
+context = """
+Termination under a correct server is the `next` field arriving as JSON `null`, which serde maps to `None`, draining the `while let Some(url) = next` loop. The `visited` set is a separate defense: a buggy or malicious server can hand back a `next` that points at a page you already fetched (or at itself), and "follow `next` until null" would then never terminate. Re-fetching a URL already in the set is rejected as `EtlError::Parse("pagination cycle …")` — a permanent error, since retrying the same broken response would just cycle again.
+"""
+id = "fd014a78-a764-4cb9-a16b-c0973aa48d0f"
+
+# --- ShortAnswer: why content_key is fallible ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "`Row::content_key` returns `Result<String, EtlError>`, and the code comment says it must never use `unwrap_or_default()`. In one word, what does swallowing the error with `unwrap_or_default()` cause — distinct rows being silently treated as what?"
+answer.answer = "duplicates"
+answer.alternatives = ["duplicate", "the same row", "a duplicate", "dupes", "duplicated"]
+context = """
+`unwrap_or_default()` turns "I could not compute this key" into the empty string `""`. Every row that fails to serialize then shares that one empty key, so the idempotent sink's seen-set concludes they are the **same** row and discards all but the first as duplicates — silent data loss. Returning a `Result` forces the failure to the surface (propagated as `EtlError::Parse`), where a bad row is rejected loudly instead of quietly merged into another. That is why the key type is fallible by design.
+"""
+id = "0ca1a899-c43b-4058-aced-58c0c8847c54"
+
+# --- ShortAnswer: the method with_retry consults to decide ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "`with_retry` retries a `Network` error but returns a `Parse` error immediately, without ever inspecting an HTTP status code. Which method on `EtlError` does it call to make that transient-vs-permanent decision? (Give the method name.)"
+answer.answer = "is_transient"
+answer.alternatives = ["is_transient()", "EtlError::is_transient", "is_transient method", "the is_transient method"]
+context = """
+`with_retry` reads `err.is_transient()` — true for `Network` and `RateLimited`, false for `Parse`, `Auth`, and `Permanent` — and only retries when it is true (it also reads `retry_after()` to decide how long to wait). It never looks at a status code itself; the mapping from HTTP status to error variant already happened upstream in `classify_status`. Keeping the retry decision on the typed error, not the raw status, is what lets one retry loop serve every source uniformly.
+"""
+id = "d162e106-e882-4158-b3f4-390efc257837"

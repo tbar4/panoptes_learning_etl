@@ -1,0 +1,167 @@
+# Concept-Check: Orchestration (Part V)
+# Covers: Kahn's topological sort + deterministic (BTreeSet) tie-breaking,
+# cycle detection as a length-mismatch invariant, failure-gating (blocked vs
+# failed) with transitive propagation, and dependency inversion (the executor
+# depends on etl-core ONLY and schedules `dyn Source`).
+# Tracing programs are std-only and compiled by rustc at build time.
+
+# --- Tracing: deterministic topological order over a diamond ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+use std::collections::{BTreeSet, HashMap};
+
+fn main() {
+    // task -> prerequisites. A diamond plus an extra dependent on "b".
+    let prereqs: HashMap<&str, Vec<&str>> = HashMap::from([
+        ("a", vec![]),
+        ("b", vec!["a"]),
+        ("c", vec!["a"]),
+        ("d", vec!["b", "c"]),
+    ]);
+
+    let mut indegree: HashMap<&str, usize> =
+        prereqs.iter().map(|(t, p)| (*t, p.len())).collect();
+    let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (t, ps) in &prereqs {
+        for p in ps {
+            dependents.entry(*p).or_default().push(*t);
+        }
+    }
+
+    let mut ready: BTreeSet<&str> =
+        indegree.iter().filter(|(_, d)| **d == 0).map(|(t, _)| *t).collect();
+    let mut order = Vec::new();
+    while let Some(next) = ready.iter().next().copied() {
+        ready.remove(next);
+        if let Some(children) = dependents.get(next) {
+            for c in children {
+                let d = indegree.get_mut(c).unwrap();
+                *d -= 1;
+                if *d == 0 {
+                    ready.insert(c);
+                }
+            }
+        }
+        order.push(next);
+    }
+    println!("{}", order.join(","));
+}
+"""
+answer.doesCompile = true
+answer.stdout = "a,b,c,d"
+context = """
+This is Kahn's algorithm with a **sorted** ready-set. `a` is the only node with indegree 0, so it runs first; that clears both `b` and `c` to indegree 0 at once. Because `ready` is a `BTreeSet`, `ready.iter().next()` always returns the alphabetically-smallest ready node, so `b` beats `c`. `d` only reaches indegree 0 after both `b` and `c` are emitted, so it is last: **a,b,c,d**. Swap the `BTreeSet` for a `HashSet` and the `b` vs `c` order could differ run to run — which is exactly why the shipped `Dag` uses a `BTreeSet` for determinism.
+"""
+id = "ced54447-a233-4c9c-88cf-235c8ecd7f6b"
+
+# --- Tracing: failure-gating — a blocked node never runs ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+use std::collections::HashSet;
+
+fn main() {
+    // Run order (already topologically sorted). Each entry: (id, prereqs).
+    let plan: Vec<(&str, Vec<&str>)> = vec![
+        ("extract", vec![]),
+        ("clean", vec!["extract"]),
+        ("report", vec!["clean"]),
+    ];
+    // "clean" fails when it runs.
+    let fails = ["clean"];
+
+    let mut bad: HashSet<&str> = HashSet::new();
+    let mut ran = Vec::new();
+    let mut blocked = Vec::new();
+    for (id, prereqs) in &plan {
+        if prereqs.iter().any(|p| bad.contains(p)) {
+            bad.insert(id);
+            blocked.push(*id);
+            continue;
+        }
+        ran.push(*id);
+        if fails.contains(id) {
+            bad.insert(id);
+        }
+    }
+    println!("ran={:?}", ran);
+    println!("blocked={:?}", blocked);
+}
+"""
+answer.doesCompile = true
+answer.stdout = """
+ran=["extract", "clean"]
+blocked=["report"]
+"""
+context = """
+This is the executor's gating logic in miniature. `extract` runs (no bad prereqs) and succeeds. `clean` runs — its prereq `extract` is fine — but it fails, so it is added to `bad`. `report` depends on `clean`, which is now in `bad`, so `report` is **blocked**: it never runs, and it is added to `bad` too (so the block would propagate further down a longer chain). Hence `ran=["extract", "clean"]` and `blocked=["report"]`. Note the distinction the real `RunReport` preserves: `clean` **failed** (it ran and errored — it gets a record), while `report` was **blocked** (it never ran — no record, just a blocked entry).
+"""
+id = "11a3b38b-412c-40a0-b2eb-ef6285c052b3"
+
+# --- MultipleChoice: why the ready-set is a BTreeSet ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "`Dag::topological_order` keeps its ready-set in a `BTreeSet<TaskId>` rather than a `Vec` or `HashSet`. What does that choice buy the scheduler?"
+prompt.distractors = [
+  "It makes the topological sort asymptotically faster than a queue-based Kahn's algorithm",
+  "It is required for cycle detection to work at all",
+  "It lets the executor run ready tasks concurrently instead of one at a time",
+]
+answer.answer = "When several tasks are ready at once, ties break in a fixed (sorted) order, so the run order is identical on every run and every machine"
+context = """
+The design decision hiding in Kahn's algorithm is *which* ready node to pop when several have indegree 0 simultaneously (in a diamond, both middle nodes become ready together). A `HashSet` would surrender that choice to hash iteration order, which can vary run to run and machine to machine — a pipeline order that changes for no visible reason, and a nightmare to test. A `BTreeSet` is always sorted, so `iter().next()` returns the smallest `TaskId` and the order is deterministic. It does not change the algorithm's complexity, is not needed for cycle detection, and does not introduce concurrency.
+"""
+id = "3e11c6e6-482e-4384-a942-980d9eb53dc2"
+
+# --- MultipleChoice: cycle detection via length mismatch ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "`topological_order` never explicitly searches for a cycle, yet it returns `EtlError::Parse` for a graph like `a → b → a`. What actually detects the cycle?"
+prompt.distractors = [
+  "A depth-first traversal that flags a node it visits twice",
+  "A check that no task lists itself among its own prerequisites",
+  "A timeout that fires when the ready-set stops shrinking",
+]
+answer.answer = "After the loop, the emitted order is shorter than the node count — nodes in a cycle can never reach indegree 0, so they are never emitted"
+context = """
+Kahn's algorithm can only emit a node once its indegree reaches 0 — once all its prerequisites have already been emitted. Nodes locked in a cycle mutually keep each other's indegree above 0 forever, so none of them is ever emitted. The loop simply runs dry. The single comparison `order.len() != self.nodes.len()` is therefore the entire cycle detector: fewer nodes ordered than exist means a cycle swallowed the rest. (A self-edge `a → a` is just the one-node case of this, caught the same way.)
+"""
+id = "4a982d73-927d-4212-b4c1-77d2f917f316"
+
+# --- ShortAnswer: the one crate etl-orchestrate depends on ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "For dependency inversion to hold, the `etl-orchestrate` crate must depend on exactly one of the workspace's own crates (the one holding the `Source`/`Transform`/`Sink` traits). Name that crate."
+answer.answer = "etl-core"
+answer.alternatives = ["etl_core", "the etl-core crate"]
+context = """
+`etl-orchestrate` depends on **etl-core** only — the crate that declares the `Source`, `Transform`, and `Sink` traits, the `Ledger`, and `with_retry`. It deliberately does **not** depend on `etl-sources`, so a concrete source like `CelestrakSource` is not even in scope inside the executor; writing `use etl_sources::CelestrakSource;` there would fail to compile. `cargo tree -p etl-orchestrate` proves it: only `etl-core` and `chrono` appear, and `etl-sources` is absent from the whole closure. The crate boundary, not a convention, is what enforces the layering.
+"""
+id = "94cd5249-3682-4cd7-8f87-2f74772ede6f"
+
+# --- MultipleChoice: which crate names concrete sources ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "In the Panoptes workspace, which crate is allowed to name concrete sources like `CelestrakSource` and `SpaceTrackSource` and wire them into the DAG?"
+prompt.distractors = [
+  "`etl-orchestrate`, since it is the crate that schedules and runs them",
+  "`etl-core`, since it defines the `Source` trait they implement",
+  "Every crate — the sources are re-exported from `etl-core` for convenience",
+]
+answer.answer = "Only the `panoptes-etl` binary, which sits at the top of the dependency graph and depends on both the orchestrator and the sources"
+context = """
+Concrete-source knowledge is concentrated at a single point: the `panoptes-etl` binary, the top of the dependency graph, which depends on `etl-orchestrate` *and* `etl-sources` and assembles them in `main.rs`. `etl-core` only declares the traits (it must not know its implementors); `etl-orchestrate` schedules `dyn Source` and never names a concrete one (that is the whole inversion). Keeping the detail-knowledge in the one crate that assembles the program is what lets every reusable layer beneath it stay source-agnostic — and what makes the capstone's fourth source a purely additive change.
+"""
+id = "481d52e4-80bc-4568-8649-f28ce43f59ee"
+
+# --- ShortAnswer: blocked vs failed ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "In a `RunReport`, a node that *ran and errored* gets a `RunRecord` with a Failed outcome. A node that never ran because a prerequisite was bad lands in a different list instead — one word, the name of that list/state. What is it?"
+answer.answer = "blocked"
+answer.alternatives = ["blocked list", "the blocked list", "report.blocked", "Blocked"]
+context = """
+The executor distinguishes two failure modes. A node that **failed** actually ran, errored, and gets a `RunRecord` with `Outcome::Failed` (and its id is added to the `bad` set). A node that never ran because one of its prerequisites was in `bad` is **blocked** — it produces no record and is pushed to `report.blocked`. Crucially, a blocked node is *also* added to `bad`, so the block propagates transitively: in a diamond where `a` fails, `b` and `c` block, and `d` — depending on both — blocks in turn even though `a` is not its direct prerequisite. The gate stops the work; the counter proving zero extract calls is how the tests confirm it.
+"""
+id = "f2da8f2f-b0cd-4713-a131-28088be8d84f"

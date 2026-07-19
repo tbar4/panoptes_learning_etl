@@ -1,0 +1,150 @@
+# Concept-Check: Authentication (Part III)
+# Covers: token-bucket refill arithmetic, the watermark/last_success rule,
+# cookie-session auth, and transient-vs-permanent classification AT LOGIN.
+# Tracing programs are std-only and compiled by rustc at build time.
+
+# --- Tracing: token-bucket refill arithmetic ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+fn main() {
+    // A token bucket: capacity 2.0, refilling 1 token per second, starts full.
+    let capacity = 2.0_f64;
+    let refill = 1.0_f64;
+    let mut tokens = capacity;
+
+    // Two acquisitions at t=0 drain the full bucket.
+    tokens -= 1.0;
+    tokens -= 1.0;
+
+    // 3 seconds pass. Refill is elapsed * rate, capped at capacity.
+    let elapsed = 3.0_f64;
+    tokens = (tokens + elapsed * refill).min(capacity);
+
+    println!("{tokens}");
+}
+"""
+answer.doesCompile = true
+answer.stdout = "2"
+context = """
+Trace the arithmetic. The bucket starts full at 2.0; two acquisitions drop it to 0.0. Then 3 seconds elapse at 1 token/sec, so the naive refill is `0.0 + 3.0 * 1.0 = 3.0` — but `.min(capacity)` clamps it to **2.0**. The clamp is the whole point: without it, a long idle period would let the bucket accumulate 3 tokens and permit a burst larger than `capacity`, defeating the rate limit. `2.0_f64` prints as `2`.
+"""
+id = "85be0d7b-639a-4516-9806-0d2d1b199e72"
+
+# --- Tracing: last_success ignores failed runs ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+#[derive(PartialEq)]
+enum Outcome {
+    Success,
+    Failed,
+}
+
+struct Run {
+    watermark: u32,
+    outcome: Outcome,
+}
+
+fn main() {
+    let runs = vec![
+        Run { watermark: 100, outcome: Outcome::Success },
+        Run { watermark: 200, outcome: Outcome::Failed },
+        Run { watermark: 150, outcome: Outcome::Success },
+    ];
+
+    // The last *successful* run's watermark — failures are skipped.
+    let wm = runs
+        .iter()
+        .filter(|r| r.outcome == Outcome::Success)
+        .map(|r| r.watermark)
+        .last();
+
+    println!("{wm:?}");
+}
+"""
+answer.doesCompile = true
+answer.stdout = "Some(150)"
+context = """
+The filter keeps only `Success` runs, so the `Failed` run at watermark 200 is dropped before `.last()` ever sees it. Of the two survivors (100 and 150), `.last()` returns the final one in iteration order — **150**, printed as `Some(150)`. This is the ledger's load-bearing rule: a failed run is recorded but never counts as the last success, so its (higher) watermark cannot advance the mark. Drop the `outcome == Success` clause and you would get `Some(150)` too here — but on real data the failed run's watermark could be the latest, and you would skip data it never actually fetched.
+"""
+id = "4b1b7694-3671-4589-80bb-b46f0b000840"
+
+# --- Tracing: extracting the cookie from a Set-Cookie header ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+fn main() {
+    // A Set-Cookie header value: the cookie itself, then attributes, ';'-joined.
+    let set_cookie = "session=abc123; Path=/; HttpOnly";
+
+    // The source keeps only the first ';'-separated segment to forward back.
+    let cookie = set_cookie.split(';').next().unwrap();
+
+    println!("{cookie}");
+}
+"""
+answer.doesCompile = true
+answer.stdout = "session=abc123"
+context = """
+`split(';')` yields `"session=abc123"`, `" Path=/"`, `" HttpOnly"` in turn; `.next()` takes the first — the `name=value` pair — and drops the `Path`/`HttpOnly` attributes. That first segment is exactly what `SpaceTrackSource` forwards in the `Cookie` header of its follow-up query. The attributes are instructions to a browser (scope, security flags); a server-to-server client only needs the `name=value` to prove it holds the session.
+"""
+id = "926ec571-f36c-4ea3-8cc8-3e6fbfe7fc5e"
+
+# --- MultipleChoice: cookie-session auth mechanics ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "After a successful login, the Space-Track source must authenticate its follow-up CDM query. What does it actually do?"
+prompt.distractors = [
+  "Re-sends the username and password in the query string of the CDM request",
+  "Adds the password to an `x-api-key` header on every subsequent request",
+  "Nothing — once logged in, `reqwest` automatically attaches the session to all later requests",
+]
+answer.answer = "Reads the session cookie from the login response's `Set-Cookie` header and forwards it in the `Cookie` header of the next request"
+context = """
+The password crosses the wire exactly once, in the login POST body. The login response carries a `Set-Cookie` header; the source pulls that value, keeps the `name=value` segment, and attaches it as the `Cookie` request header on the CDM query. Nothing is automatic — the source forwards the cookie by hand, one line at a time. Re-sending credentials in the query string would leak the password into logs; there is no `x-api-key` for Space-Track; and `reqwest::Client` here carries no cookie jar, so the forwarding is explicit.
+"""
+id = "0cd3c9ab-cb86-4211-b673-8d3ea68d241f"
+
+# --- MultipleChoice: transient vs permanent AT LOGIN ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "A login POST to Space-Track comes back `503 Service Unavailable`. How is that failure classified, and what should the retry loop do?"
+prompt.distractors = [
+  "Permanent (`EtlError::Auth`) — any failure at the login step means authentication failed",
+  "Permanent (`EtlError::Permanent`) — a 5xx is a server bug that will never resolve",
+  "It is ignored — login failures do not surface as errors, only query failures do",
+]
+answer.answer = "Transient (`EtlError::Network`) — the credentials are fine, the server was briefly unavailable, so the whole handshake should be retried"
+context = """
+The login step funnels its non-2xx status through the *same* `classify_status` as the query step. A `503` maps to `EtlError::Network`, which `is_transient()` reports as `true`, so the retry loop waits and re-runs the whole login-then-query handshake. Only `401`/`403` at login become `EtlError::Auth` (permanent — wrong credentials will never succeed). Bucketing every login failure as "auth failed" would abort a run that a single retry would have completed.
+"""
+id = "d4e36053-441d-470d-b58c-f800705b79f3"
+
+# --- ShortAnswer: the watermark rule ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "A pipeline run fails halfway through. It is appended to the ledger. Should that failed run advance the source's watermark (the mark the next incremental run resumes from)? Answer yes or no."
+answer.answer = "no"
+answer.alternatives = ["No", "no it should not", "never"]
+context = """
+No. The failed run is *recorded* — the ledger is a complete, honest history — but `last_success` filters to runs whose outcome is `Success`, so a failure's watermark is never returned as the resume point. If a failed run were allowed to advance the watermark, the next incremental run would start *after* data the failed run never actually fetched, silently creating a gap. Record the failure; do not let it claim progress.
+"""
+id = "fb40871f-5a0c-40b9-909a-8edc5d80c6fb"
+
+# --- ShortAnswer: paused-clock testing ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "The token-bucket test asserts that an empty bucket blocks ~1 second before refilling — yet it runs in microseconds and never flakes. What tokio test setting makes the clock virtual so `sleep` fast-forwards instead of waiting for real wall-clock time? (Name the setting.)"
+answer.answer = "start_paused"
+answer.alternatives = [
+  "start_paused = true",
+  "#[tokio::test(start_paused = true)]",
+  "tokio::test(start_paused = true)",
+  "paused time",
+  "start_paused=true",
+]
+context = """
+`#[tokio::test(start_paused = true)]` starts the test with a paused, virtual clock. When every task is parked on a `sleep`, tokio auto-advances the clock straight to the next timer's deadline, so a 1-second `sleep` completes instantly in real time while `Instant::now()` still reports a full virtual second elapsed. The blocking-and-refilling logic runs for real; only the waiting is free — which is what makes the timing assertion deterministic instead of flaky on a loaded CI box.
+"""
+id = "7bec56b6-2dfd-4bd4-bc8b-1ca9edd844c9"
