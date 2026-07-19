@@ -1,0 +1,25 @@
+[book]
+title = "Building the Panoptes ETL: A Rust Space-Data Pipeline, Test by Test"
+authors = ["Trevor"]
+description = "A phased, test-driven sequel course: build a space-data ETL (CelesTrak, Space-Track, TheSpaceDevs, NASA) that feeds the Panoptes eval harness — concept first, then pair-programmed implementation, with compiler-checked quizzes each arc. Simple now, with the exact seams that grow into an orchestrator."
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+additional-css = ["theme/quiz-extra.css"]
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+editable = false
+copyable = true
+
+[preprocessor.quiz]
+# mdbook-quiz: interactive quizzes (MultipleChoice, ShortAnswer, Tracing).
+# Install with: cargo install mdbook-quiz --locked --version 0.4.0
+# cache-answers persists the reader's answers in localStorage across reloads.
+cache-answers = true

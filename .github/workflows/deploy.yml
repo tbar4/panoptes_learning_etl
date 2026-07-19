@@ -1,0 +1,63 @@
+# Build the mdBook (with mdbook-quiz) and deploy to GitHub Pages.
+name: Deploy course to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust is required because mdbook-quiz's "Tracing" questions are
+      # compiled by the real Rust compiler at build time.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # mdbook-quiz 0.5.x targets the mdbook 0.5 preprocessor protocol; this
+      # book is verified against mdbook 0.4.52 + mdbook-quiz 0.4.0. Keep the
+      # two pins in sync, and keep the versions in the cache key.
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: cargo-bins-mdbook-0.4.52-quiz-0.4.0-${{ runner.os }}
+
+      - name: Install mdBook and mdbook-quiz
+        run: |
+          cargo install mdbook --locked --version 0.4.52
+          cargo install mdbook-quiz --locked --version 0.4.0
+
+      - name: Build
+        run: mdbook build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

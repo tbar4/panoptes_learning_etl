@@ -1,0 +1,43 @@
+/* Callout boxes used throughout the course */
+.callout {
+  border-left: 4px solid #5fa8a0;
+  background: rgba(95, 168, 160, 0.07);
+  padding: 0.8rem 1rem;
+  border-radius: 0 6px 6px 0;
+  margin: 1.4rem 0;
+}
+.callout.predict {
+  border-left-color: #e5a83b;
+  background: rgba(229, 168, 59, 0.07);
+}
+.callout.trap {
+  border-left-color: #c4604f;
+  background: rgba(196, 96, 79, 0.07);
+}
+.callout-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.8;
+  display: block;
+  margin-bottom: 0.3rem;
+}
+
+/* Attributed book quotes rendered inline via <cite index="..."> */
+cite[index] {
+  font-style: italic;
+  border-left: 2px solid #5fa8a0;
+  padding-left: 0.6em;
+  margin-left: 0.1em;
+  opacity: 0.95;
+}
+
+/* Attributed book quotes rendered inline via <cite index="..."> */
+cite[index] {
+  font-style: italic;
+  border-left: 2px solid #5fa8a0;
+  padding-left: 0.6em;
+  margin-left: 0.1em;
+  opacity: 0.95;
+}
