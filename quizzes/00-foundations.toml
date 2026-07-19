@@ -1,0 +1,114 @@
+# Foundations Concept-Check
+# Covers: the four seams, transient-vs-permanent classification, newtype id-safety.
+# Mixed types: Tracing, MultipleChoice, ShortAnswer.
+
+# --- Tracing: newtypes turn an id mix-up into a compile error ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+struct BinId(u32);
+struct PalletId(u32);
+
+fn ship_from_bin(_bin: BinId) {}
+
+fn main() {
+    let pallet = PalletId(7);
+    ship_from_bin(pallet);
+}
+"""
+answer.doesCompile = false
+context = """
+`ship_from_bin` expects a `BinId`, but it is handed a `PalletId`. Even though both wrap a `u32`, they are distinct types, so the compiler rejects the call with **E0308: mismatched types** ("expected `BinId`, found `PalletId`"). This is the whole point of the newtype pattern: an id mix-up that would compile — and silently corrupt data — with bare `u32`s becomes a compile error instead. With `NoradId` in the real pipeline, this is what stops a conjunction's primary and secondary ids from being swapped.
+"""
+id = "7e792ad2-bf6f-49b4-aa96-1f74e8532d14"
+
+# --- Tracing: classification match order (the 429-vs-4xx trap) ---
+[[questions]]
+type = "Tracing"
+prompt.program = """
+fn is_transient(status: u16) -> bool {
+    match status {
+        429 => true,
+        400..=499 => false,
+        500..=599 => true,
+        _ => false,
+    }
+}
+
+fn main() {
+    println!("{} {}", is_transient(404), is_transient(503));
+}
+"""
+answer.doesCompile = true
+answer.stdout = "false true"
+context = """
+`404` is a plain client error — permanent — so `is_transient(404)` is `false`. `503` is a server error — the server may recover — so `is_transient(503)` is `true`. Output: `false true`. Note the arm order: `429` is listed **before** `400..=499` precisely so the range does not swallow it. If you reversed those two arms, `429` would match `400..=499` first and be misclassified as permanent — a bug no happy-path test would catch.
+"""
+id = "185081e6-eb9d-4e1b-967d-f4e8999d7f0f"
+
+# --- MultipleChoice: which seam makes re-runs safe ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "A run writes 500 rows, dies halfway, and is retried. Which of the four seams is what keeps the retry from writing duplicate rows?"
+prompt.distractors = [
+  "The `Source` trait — a uniform async interface for every source",
+  "The E/T/L split — three separable stages with typed boundaries",
+  "The run ledger — an append-only record of what ran and when",
+]
+answer.answer = "Idempotent, content-addressed writes — a row's id is a hash of its content, so a re-written row is recognized and skipped"
+context = """
+Content-addressing derives each row's id from a hash of its own content, so the *same* row always hashes to the *same* id. An idempotent sink tracks the ids it has already written and skips repeats, so a re-run writes zero new rows — which is exactly what makes "just run it again" a safe response to any failure. The other three seams are real and important, but they are not the one that makes re-runs safe: that is seam 4, installed in Part IV and spent again in Part VI (embeddings are never recomputed).
+"""
+id = "c9a7313a-9900-405e-b6d3-0e4c52c32245"
+
+# --- MultipleChoice: classify a 404 ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "Your HTTP source gets a `404 Not Found` for a query. How should the error be classified, and what should the retry loop do?"
+prompt.distractors = [
+  "Transient — retry with exponential backoff until it succeeds",
+  "Transient — retry, but only if a `Retry-After` header is present",
+  "It depends on the `5xx`/`4xx` split — a `404` is a server error, so transient",
+]
+answer.answer = "Permanent — do not retry; an unchanged request will get the identical 404 every time"
+context = """
+A `404` (like `400`, `401`, `403`) means *your request* was wrong — bad URL, bad input, bad credentials. Retrying an unchanged request gets the identical rejection, so it is permanent and must surface immediately. The classic ETL bug is bucketing every non-`2xx` as transient, which makes the retry loop hammer a nonexistent endpoint forever. Only `429` (slow down) and `5xx` (server broke, may recover) are transient.
+"""
+id = "6576ab17-c751-47a1-b5e2-b1dcd97faba2"
+
+# --- MultipleChoice: which stage is pure and synchronous ---
+[[questions]]
+type = "MultipleChoice"
+prompt.prompt = "In the E/T/L split, `Source::extract` and `Sink::load` are `async`, but one stage is a plain synchronous function. Which, and why?"
+prompt.distractors = [
+  "`Source` — extraction is just reading, so it never needs to await anything",
+  "`Sink` — writing to disk is synchronous, so loading needs no async",
+  "All three are async; there is no purely synchronous stage",
+]
+answer.answer = "`Transform` — parsing touches no network, clock, or disk, so it is a pure function that can be exhaustively unit-tested"
+context = """
+`Transform::transform(&self, raw: &RawRecord) -> Result<Vec<Row>, EtlError>` is pure and synchronous on purpose. Parsing is the stage you most want to test exhaustively, and a pure function with no I/O is trivial to test — no mock server, no clock, no async runtime. `Source` and `Sink` are async precisely because they *do* touch the outside world.
+"""
+id = "2ebf0641-6a2d-43e7-b6c9-4a74c6e1a968"
+
+# --- ShortAnswer: the classification method ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "What is the name of the method on `EtlError` that answers whether an error is worth retrying? (Give the method name.)"
+answer.answer = "is_transient"
+answer.alternatives = ["is_transient()", "EtlError::is_transient", "fn is_transient"]
+context = """
+`EtlError::is_transient(&self) -> bool` is a `matches!` over exactly the retryable variants (`Network` and `RateLimited`). Centralizing the classification on the type — rather than re-deciding at each call site — is what lets the Part IV retry loop ask one question: retry only while `is_transient()` is true.
+"""
+id = "13344c71-0df5-456a-8d84-0e663febc93d"
+
+# --- ShortAnswer: the serde attribute for clean id wire form ---
+[[questions]]
+type = "ShortAnswer"
+prompt.prompt = "Which serde container attribute makes a one-field newtype like `NoradId(u32)` serialize as the bare inner integer (e.g. `25544`) instead of a wrapper object?"
+answer.answer = "#[serde(transparent)]"
+answer.alternatives = ["serde(transparent)", "transparent", "#[serde(transparent)]\n"]
+context = """
+`#[serde(transparent)]` tells serde to represent the struct as its single field, so `NoradId(25544)` serializes to `25544` and deserializes straight back — the type safety is a compile-time-only fiction, and the bytes on disk stay clean. Without it, the newtype would leak its wrapper into the JSON.
+"""
+id = "a6e63be2-84c1-49d4-a09f-e05411bb9882"
