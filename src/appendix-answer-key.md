@@ -85,7 +85,7 @@ The module list and the flat re-export surface every other crate imports from.
 It names modules built across every later arc (`ledger`, `retry`, `content`,
 `embed`, `vector`) — this is the *final* root; you grow it arc by arc.
 
-```rust
+```rust,ignore
 //! `etl-core` — the seams every other crate depends on.
 //!
 //! Domain model, the `Source` / `Transform` / `Sink` traits, the error
@@ -121,7 +121,7 @@ The single `EtlError` every stage returns. The load-bearing distinction is
 transient vs permanent: `is_transient()` decides what the retry layer will ever
 retry, and `retry_after()` surfaces a server-supplied backoff.
 
-```rust
+```rust,ignore
 use std::time::Duration;
 
 use thiserror::Error;
@@ -214,7 +214,7 @@ A `u32` NORAD catalog number wrapped so it can't be confused with any other
 integer id. `#[serde(transparent)]` keeps the wire form a bare integer; `Display`
 zero-pads to five digits; `FromStr` returns an `EtlError::Parse`.
 
-```rust
+```rust,ignore
 use std::fmt;
 use std::str::FromStr;
 
@@ -297,7 +297,7 @@ source — CelesTrak — with its TLE parser and HTTP-status classifier.
 entities (`SpaceObject`, `Conjunction`, `Launch`). Derived quantities (period,
 apogee, class) are computed on demand so the stored form stays canonical.
 
-```rust
+```rust,ignore
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -495,7 +495,7 @@ Tests: `iss_is_low_earth_orbit`, `geostationary_is_classified_geo`, `orbit_class
 three object-safe traits `Source` / `Transform` / `Sink`. `Source` and `Sink`
 are async via `async_trait`; `Transform` is pure and synchronous.
 
-```rust
+```rust,ignore
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -602,7 +602,7 @@ Tests: `row_tags_by_kind`, `a_source_can_be_boxed_as_dyn`.
 The **L** contract `panoptes-gen` reads: newline-delimited `Row` values,
 appended (never truncated) so a run never clobbers prior output.
 
-```rust
+```rust,ignore
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -742,7 +742,7 @@ wiremock = { workspace = true }
 The module list and re-exports for every concrete source and its support
 machinery. Like the core root, this is the final form; you grow it arc by arc.
 
-```rust
+```rust,ignore
 //! `etl-sources` — concrete `Source`/`Transform` implementations and the
 //! machinery each real API forces on us (TLE parsing, rate limiting, retry,
 //! pagination). Depends only on `etl-core`.
@@ -768,7 +768,7 @@ The single place that maps a non-success HTTP status onto the `EtlError`
 taxonomy — so the transient/permanent decision is made once, correctly, and
 every source funnels through it.
 
-```rust
+```rust,ignore
 //! Mapping HTTP responses onto the [`EtlError`] taxonomy.
 //!
 //! This is the single place that decides which statuses are worth retrying.
@@ -860,7 +860,7 @@ checksum (minus counts as 1), the 2-digit-year epoch pivot, byte-slice column
 extraction, and the cross-line catalog-number check that catches misalignment a
 checksum can't.
 
-```rust
+```rust,ignore
 //! A hand-rolled parser for the two-line element (TLE) set format.
 //!
 //! TLE is a fixed-width legacy text format: fields live at exact column
@@ -1056,7 +1056,7 @@ The first real E/T split: `CelestrakSource::extract` is an open HTTP GET
 returning TLE text; `CelestrakTransform` chunks the text into 3-line blocks and
 parses each into a `Row::SpaceObject`. Wiremock covers success, 500, 429, and 404.
 
-```rust
+```rust,ignore
 //! The CelesTrak source: an open HTTP GET returning TLE text (Extract), plus
 //! the transform that parses 3-line TLE blocks into `Row::SpaceObject`.
 
@@ -1250,7 +1250,7 @@ An append-only JSONL log of every run. `last_success` reads back the most recent
 successful `RunRecord` for a source — the seed of incremental pulls, retries, and
 backfill.
 
-```rust
+```rust,ignore
 //! The run ledger — an append-only record of every pipeline run.
 //!
 //! This one artifact is the seed of everything an orchestrator adds later:
@@ -1410,7 +1410,7 @@ A classic token bucket built by hand: up to `capacity` tokens, refilling
 continuously at `refill_per_sec`; `acquire` sleeps until a token is free. Tested
 under paused tokio time so the timing is deterministic.
 
-```rust
+```rust,ignore
 //! A hand-rolled token-bucket rate limiter.
 //!
 //! Space-Track bans clients that hammer it, so every request must pass through
@@ -1505,7 +1505,7 @@ on every request, then the transform of CDM JSON — where numbers arrive as
 strings — into `Row::Conjunction`, the keystone entity. Credentials come from the
 environment, never the URL.
 
-```rust
+```rust,ignore
 //! The Space-Track source: cookie-session auth + rate limiting (Extract), plus
 //! the transform from CDM JSON into `Row::Conjunction` — the keystone entity.
 
@@ -1760,7 +1760,7 @@ a cursor-paginated source that follows `next` to the end.
 `max_attempts`, backing off exponentially — but a server-supplied `Retry-After`
 always wins. Tested under paused time.
 
-```rust
+```rust,ignore
 //! Retry with capped exponential backoff — retrying only what is worth
 //! retrying.
 //!
@@ -1902,7 +1902,7 @@ uses it as a dedupe key (fallible by design). `IdempotentSink` wraps any `Sink`
 and forwards only rows it has not seen — the precondition for any retry or
 backfill.
 
-```rust
+```rust,ignore
 //! Content-addressing and idempotent writes.
 //!
 //! A stable id derived from a row's *content* means re-running a pipeline
@@ -2068,7 +2068,7 @@ Cursor pagination: `extract` follows the `next` cursor to the end, wraps each
 page fetch in `with_retry`, and guards against a cyclic `next` with a visited
 set. The transform pulls launches out of deeply nested Launch Library 2 JSON.
 
-```rust
+```rust,ignore
 //! The TheSpaceDevs source (Launch Library 2): cursor pagination over a
 //! throttled REST API (Extract), plus the transform of deeply nested launch
 //! JSON into `Row::Launch`.
@@ -2331,7 +2331,7 @@ async-trait = { workspace = true }
 
 <h3 id="task-etl-orchestrate-lib">crates/etl-orchestrate/src/lib.rs — the orchestrator crate root (Part V)</h3>
 
-```rust
+```rust,ignore
 //! `etl-orchestrate` — a typed task DAG and the executor that runs it.
 //!
 //! Depends on `etl-core` only. The executor schedules `dyn Source` /
@@ -2351,7 +2351,7 @@ A directed acyclic graph of `TaskId`s with `topological_order` via Kahn's
 algorithm over a sorted ready-set, so the order is deterministic and a remaining
 node signals a cycle.
 
-```rust
+```rust,ignore
 //! A typed task DAG with deterministic topological execution order.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -2512,7 +2512,7 @@ topological order, skips still-fresh sources, records every run in the ledger,
 and propagates a block downstream when a prerequisite fails. It never names a
 concrete source.
 
-```rust
+```rust,ignore
 //! The executor: runs pipelines in topological order, retries transient
 //! failures, records every run in the ledger, and skips sources still fresh
 //! from a recent successful run.
@@ -2872,7 +2872,7 @@ pretty_assertions = { workspace = true }
 The clap `Cli`/`Command` definitions and the ledger-status report — the testable
 parts of the binary, kept out of `main.rs` so they can be unit-tested.
 
-```rust
+```rust,ignore
 //! CLI surface and the ledger-status report — the testable parts of the binary.
 
 use std::path::PathBuf;
@@ -2988,7 +2988,7 @@ the only file in the workspace that names `CelestrakSource`, `SpaceTrackSource`,
 `SpaceDevsSource`, and `VoyageEmbedder`. The commented capstone block shows where
 your NASA source goes — nothing structural changes to admit a fourth source.
 
-```rust
+```rust,ignore
 //! The `panoptes-etl` binary: wires the concrete sources into a DAG and runs
 //! it. This is the only crate in the workspace that names a concrete source.
 
@@ -3169,7 +3169,7 @@ and the brute-force cosine retriever.
 The embedding boundary — one text-to-vectors method, provider-agnostic and
 mockable. Mirrors the first course's `ModelClient`.
 
-```rust
+```rust,ignore
 //! The embedding boundary — a trait mirroring the first course's `ModelClient`.
 //!
 //! Embeddings are the definitive expensive, idempotent, content-addressed
@@ -3196,7 +3196,7 @@ Tests: none — the trait is exercised by `vector.rs` (a counting stub) and `voy
 load target that embeds prose and appends `EmbeddedRow` JSONL, never embedding
 the same text twice.
 
-```rust
+```rust,ignore
 //! Brute-force semantic retrieval: an embed load target and a cosine index.
 //!
 //! The corpus is thousands of prose fields, not millions, so linear cosine
@@ -3462,7 +3462,7 @@ A concrete `Embedder` backed by the Voyage AI embeddings API — injectable base
 URL, bearer key, request/response pair — structurally identical to the first
 course's `ModelClient`, and mocked with wiremock.
 
-```rust
+```rust,ignore
 //! A concrete [`Embedder`] backed by the Voyage AI embeddings API.
 //!
 //! Structurally identical to the first course's Anthropic `ModelClient`: an

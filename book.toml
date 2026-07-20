@@ -5,6 +5,12 @@ description = "A phased, test-driven sequel course: build a space-data ETL (Cele
 language = "en"
 src = "src"
 
+# The edition the Rust Playground uses for runnable code blocks (the play
+# button). Without this, the playground defaults to edition 2015 and any
+# async/await example fails with E0670.
+[rust]
+edition = "2021"
+
 [output.html]
 default-theme = "navy"
 preferred-dark-theme = "navy"
