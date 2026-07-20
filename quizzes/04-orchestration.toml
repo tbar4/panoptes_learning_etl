@@ -104,11 +104,11 @@ id = "11a3b38b-412c-40a0-b2eb-ef6285c052b3"
 type = "MultipleChoice"
 prompt.prompt = "`Dag::topological_order` keeps its ready-set in a `BTreeSet<TaskId>` rather than a `Vec` or `HashSet`. What does that choice buy the scheduler?"
 prompt.distractors = [
-  "It makes the topological sort asymptotically faster than a queue-based Kahn's algorithm",
-  "It is required for cycle detection to work at all",
-  "It lets the executor run ready tasks concurrently instead of one at a time",
+  "It makes the topological sort asymptotically faster than the plain queue-based version of Kahn's algorithm",
+  "It is what makes cycle detection possible at all; a plain `HashSet` could never catch a cycle",
+  "It lets the executor run every ready task concurrently instead of stepping one node at a time",
 ]
-answer.answer = "When several tasks are ready at once, ties break in a fixed (sorted) order, so the run order is identical on every run and every machine"
+answer.answer = "When several tasks are ready at once, ties break in sorted order, so the run order is identical every run"
 context = """
 The design decision hiding in Kahn's algorithm is *which* ready node to pop when several have indegree 0 simultaneously (in a diamond, both middle nodes become ready together). A `HashSet` would surrender that choice to hash iteration order, which can vary run to run and machine to machine — a pipeline order that changes for no visible reason, and a nightmare to test. A `BTreeSet` is always sorted, so `iter().next()` returns the smallest `TaskId` and the order is deterministic. It does not change the algorithm's complexity, is not needed for cycle detection, and does not introduce concurrency.
 """
@@ -119,11 +119,11 @@ id = "3e11c6e6-482e-4384-a942-980d9eb53dc2"
 type = "MultipleChoice"
 prompt.prompt = "`topological_order` never explicitly searches for a cycle, yet it returns `EtlError::Parse` for a graph like `a → b → a`. What actually detects the cycle?"
 prompt.distractors = [
-  "A depth-first traversal that flags a node it visits twice",
-  "A check that no task lists itself among its own prerequisites",
-  "A timeout that fires when the ready-set stops shrinking",
+  "A depth-first traversal that flags any node it happens to visit a second time during the walk",
+  "A guard that checks no task ever lists itself among its own declared prerequisites",
+  "A watchdog timeout that trips once the ready-set stops shrinking between loop iterations",
 ]
-answer.answer = "After the loop, the emitted order is shorter than the node count — nodes in a cycle can never reach indegree 0, so they are never emitted"
+answer.answer = "The emitted order ends up shorter than the node count — cycle nodes never reach indegree 0"
 context = """
 Kahn's algorithm can only emit a node once its indegree reaches 0 — once all its prerequisites have already been emitted. Nodes locked in a cycle mutually keep each other's indegree above 0 forever, so none of them is ever emitted. The loop simply runs dry. The single comparison `order.len() != self.nodes.len()` is therefore the entire cycle detector: fewer nodes ordered than exist means a cycle swallowed the rest. (A self-edge `a → a` is just the one-node case of this, caught the same way.)
 """
@@ -145,11 +145,11 @@ id = "94cd5249-3682-4cd7-8f87-2f74772ede6f"
 type = "MultipleChoice"
 prompt.prompt = "In the Panoptes workspace, which crate is allowed to name concrete sources like `CelestrakSource` and `SpaceTrackSource` and wire them into the DAG?"
 prompt.distractors = [
-  "`etl-orchestrate`, since it is the crate that schedules and runs them",
-  "`etl-core`, since it defines the `Source` trait they implement",
-  "Every crate — the sources are re-exported from `etl-core` for convenience",
+  "`etl-orchestrate`, since it is the very crate that schedules and runs each concrete source at runtime",
+  "`etl-core`, since it declares the `Source` trait that every one of these concrete sources implements",
+  "Any crate in the workspace — the concrete sources are re-exported from `etl-core` for convenience",
 ]
-answer.answer = "Only the `panoptes-etl` binary, which sits at the top of the dependency graph and depends on both the orchestrator and the sources"
+answer.answer = "The `panoptes-etl` binary at the top of the graph, depending on the orchestrator and the sources"
 context = """
 Concrete-source knowledge is concentrated at a single point: the `panoptes-etl` binary, the top of the dependency graph, which depends on `etl-orchestrate` *and* `etl-sources` and assembles them in `main.rs`. `etl-core` only declares the traits (it must not know its implementors); `etl-orchestrate` schedules `dyn Source` and never names a concrete one (that is the whole inversion). Keeping the detail-knowledge in the one crate that assembles the program is what lets every reusable layer beneath it stay source-agnostic — and what makes the capstone's fourth source a purely additive change.
 """

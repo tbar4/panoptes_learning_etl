@@ -101,11 +101,11 @@ id = "772442a7-c6b0-4012-a132-c386d583752f"
 type = "MultipleChoice"
 prompt.prompt = "`Row::prose()` returns `Some` only for a non-empty `Launch.description` and `None` for `SpaceObject` and `Conjunction`. Why are the numeric entities deliberately kept out of the embedding index?"
 prompt.distractors = [
-  "Embedding numbers is slower than embedding text, so it is skipped for performance",
-  "serde cannot serialize `f64` fields into an embedding request body",
-  "The numbers are embedded too, just into a separate index file",
+  "Embedding the numeric fields is measurably slower than embedding prose, so they are skipped for speed",
+  "serde is unable to serialize the `f64` numeric fields into an embedding request's JSON body",
+  "The numbers are embedded too, just written out into a separate similarity index file of their own",
 ]
-answer.answer = "Numbers have exact meaning and are queried by threshold/sort (structured retrieval); embedding them is lossy and answers the wrong question — cosine ranks closeness, not `> cutoff`"
+answer.answer = "Numbers carry exact meaning and are queried by threshold and sort, so embedding them is lossy"
 context = """
 The retrieval split is the whole point of the arc: numeric and categorical fields (`collision_probability`, `net`, a perigee) are retrieved by exact `filter`/`sort` — a `0.001` vs `0.01` difference is a tenfold, decision-changing gap that a many-dimensional embedding would blur away. Cosine similarity ranks by *closeness*, but "probability above a cutoff" is a *threshold*, and no query vector has "everything over the line" as its nearest neighbors. So `Row::prose()` is the codebase's single point of truth for "what here is meaning-bearing prose" — one field, a launch description — and everything else stays in structured retrieval.
 """
@@ -116,11 +116,11 @@ id = "6bdedb1f-8d48-4a8e-9d7e-b6dc5703b2ef"
 type = "MultipleChoice"
 prompt.prompt = "The corpus is a few thousand launch descriptions. Why is a brute-force linear cosine scan (`VectorIndex` = a `Vec` + a sort) the *correct* design here, not a stopgap for a vector database?"
 prompt.distractors = [
-  "A linear scan is approximate but fast, which is all a demo needs",
-  "Vector databases cannot compute cosine similarity, only Euclidean distance",
-  "The standard library forbids the dependencies a vector database would require",
+  "A linear scan gives approximate results but runs fast, which is all a throwaway demo really needs",
+  "Vector databases can only compute Euclidean distance, never the cosine similarity that this retriever needs",
+  "The standard library forbids pulling in the heavy dependencies a vector database would require",
 ]
-answer.answer = "At a few thousand vectors a full scan is sub-millisecond and returns *exact* nearest neighbors, while an ANN vector DB adds an operational dependency and approximate results — cost you would pay to make a fast, exact operation slightly faster and less correct"
+answer.answer = "At a few thousand vectors a full scan is sub-millisecond and exact, while an ANN database only adds cost"
 context = """
 A vector database buys approximate-nearest-neighbor speed that matters at millions-to-billions of vectors, and charges an operational dependency, an index to rebuild as data changes, and approximate results. Below roughly a hundred thousand vectors, an in-memory linear scan is simpler, exact, and plenty fast. You add an ANN index when *profiling* — not instinct — shows the scan is the bottleneck. Keeping the retriever behind a small surface (`cosine`, `top_k`) means that swap, if it ever comes, touches one struct and no callers.
 """

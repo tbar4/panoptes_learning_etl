@@ -55,11 +55,11 @@ id = "9af58549-44b6-4dee-8cc6-5a239daea69f"
 type = "MultipleChoice"
 prompt.prompt = "`Row` is declared `#[serde(tag = \"kind\", rename_all = \"snake_case\")]`. What does the `kind` tag buy the pipeline?"
 prompt.distractors = [
-  "It makes the JSON smaller by omitting the variant's fields",
-  "It lets serde skip validation of the row's fields",
-  "It is required by tokio for any type sent across an `.await`",
+  "It shrinks each JSON line, since serde can omit the fields that the tagged variant does not actually use",
+  "It lets serde skip validating the row's fields, because the `kind` tag already fixes the variant",
+  "It is what tokio requires before any `Row` value can be sent across an `.await` suspension point",
 ]
-answer.answer = "It records which variant each line is, so one file can hold rows from every source and the reader can reconstruct the right variant without out-of-band knowledge"
+answer.answer = "It writes a `kind` discriminant on each line, so one mixed file can be read back into the right variant"
 context = """
 `Row` is a single enum over `SpaceObject`, `Conjunction`, and `Launch` so that one `Sink` can accept the output of any pipeline. The `"kind"` field is the discriminant written to each line — it is how `panoptes-gen`, reading a mixed JSONL file, knows whether a given line is a launch or a conjunction and which variant to deserialize into. Without the tag, two variants that happened to share a field shape would be ambiguous.
 """
@@ -81,11 +81,11 @@ id = "0b6798d6-6384-42b4-9a41-86c80a687e0b"
 type = "MultipleChoice"
 prompt.prompt = "The orchestrator (a later arc) holds a `Box<dyn Source>` and calls `.extract().await` without knowing the concrete type. `Source::extract` is `async` — normally not dyn-compatible. What makes it work here?"
 prompt.distractors = [
-  "The `Send + Sync` bounds on the trait make async methods dyn-compatible",
-  "The orchestrator monomorphizes a copy of `extract` for each concrete source",
-  "`async fn` in traits has always been dyn-compatible without any help",
+  "The `Send + Sync` bounds on the trait are exactly what make its `async` methods usable behind `dyn`",
+  "The orchestrator monomorphizes a separate copy of `extract` for each concrete source type that it schedules",
+  "Native `async fn` in traits has been dyn-compatible for a while now, so `extract` needs no attribute",
 ]
-answer.answer = "`#[async_trait]` rewrites `async fn extract` into a method returning a boxed future — a single concrete signature a vtable can hold"
+answer.answer = "`#[async_trait]` rewrites `async fn extract` to return a boxed future — one signature a vtable can hold"
 context = """
 A bare `async fn` in a trait desugars to an opaque, per-impl return type, which a vtable cannot represent uniformly. `#[async_trait]` rewrites each async method to return `Pin<Box<dyn Future + Send>>` — one concrete signature across all impls — which *is* vtable-friendly. That is the whole reason `Source` and `Sink` carry the attribute: it is what lets the orchestrator schedule any source through a trait object. (`Send + Sync` are needed for cross-thread scheduling, but they are not what fixes the async-in-vtable problem.)
 """
@@ -96,11 +96,11 @@ id = "8840b6a7-4973-4b6c-bf7a-eb99d7058b8b"
 type = "MultipleChoice"
 prompt.prompt = "In the TLE mod-10 checksum, columns 1-68 are summed. What does a minus sign (`-`) contribute, versus a plus sign (`+`) or a period (`.`)?"
 prompt.distractors = [
-  "`-` contributes 0; `+` and `.` each contribute 1",
-  "`-`, `+`, and `.` all contribute 0 (only digits count)",
-  "`-` subtracts 1 from the running sum; `+` adds 1; `.` is 0",
+  "`-` adds 0; `+` and `.` each add 1; only digits and signs count",
+  "`-`, `+`, and `.` all add 0 — only the numeric digits ever count",
+  "`-` subtracts 1 from the running sum; `+` adds 1; `.` contributes 0",
 ]
-answer.answer = "`-` contributes 1; `+` and `.` (and letters and spaces) each contribute 0"
+answer.answer = "`-` adds 1 to the sum; `+`, `.`, letters, and spaces each add 0"
 context = """
 The rule: each digit adds its own value, each `'-'` adds 1, and everything else — plus signs, periods, letters, spaces — adds 0. Forgetting the `'-' => 1` arm is the single most common checksum bug: it passes on lines with no minus signs and fails on lines that carry them (drag terms and mean-motion derivatives routinely do). Also note the sum stops at column 68 — the 69th character is the checksum digit being verified, so it is never included.
 """

@@ -96,11 +96,11 @@ id = "926ec571-f36c-4ea3-8cc8-3e6fbfe7fc5e"
 type = "MultipleChoice"
 prompt.prompt = "After a successful login, the Space-Track source must authenticate its follow-up CDM query. What does it actually do?"
 prompt.distractors = [
-  "Re-sends the username and password in the query string of the CDM request",
-  "Adds the password to an `x-api-key` header on every subsequent request",
-  "Nothing — once logged in, `reqwest` automatically attaches the session to all later requests",
+  "Re-sends the username and password in the query string of every follow-up CDM request it makes",
+  "Adds the account password to an `x-api-key` header on each subsequent authenticated request",
+  "Nothing explicit — after login `reqwest`'s built-in cookie jar attaches the session to later requests",
 ]
-answer.answer = "Reads the session cookie from the login response's `Set-Cookie` header and forwards it in the `Cookie` header of the next request"
+answer.answer = "Takes the session cookie from the login's `Set-Cookie` header and forwards it in the `Cookie` header"
 context = """
 The password crosses the wire exactly once, in the login POST body. The login response carries a `Set-Cookie` header; the source pulls that value, keeps the `name=value` segment, and attaches it as the `Cookie` request header on the CDM query. Nothing is automatic — the source forwards the cookie by hand, one line at a time. Re-sending credentials in the query string would leak the password into logs; there is no `x-api-key` for Space-Track; and `reqwest::Client` here carries no cookie jar, so the forwarding is explicit.
 """
@@ -111,11 +111,11 @@ id = "0cd3c9ab-cb86-4211-b673-8d3ea68d241f"
 type = "MultipleChoice"
 prompt.prompt = "A login POST to Space-Track comes back `503 Service Unavailable`. How is that failure classified, and what should the retry loop do?"
 prompt.distractors = [
-  "Permanent (`EtlError::Auth`) — any failure at the login step means authentication failed",
-  "Permanent (`EtlError::Permanent`) — a 5xx is a server bug that will never resolve",
-  "It is ignored — login failures do not surface as errors, only query failures do",
+  "Permanent (`EtlError::Auth`) — any non-2xx at the login step always means authentication was rejected",
+  "Permanent (`EtlError::Permanent`) — a `5xx` is a server-side defect that a retry will never fix",
+  "It never surfaces — login failures are swallowed, and only the later query step reports errors",
 ]
-answer.answer = "Transient (`EtlError::Network`) — the credentials are fine, the server was briefly unavailable, so the whole handshake should be retried"
+answer.answer = "Transient (`EtlError::Network`) — the credentials are fine, the server was briefly down, so retry"
 context = """
 The login step funnels its non-2xx status through the *same* `classify_status` as the query step. A `503` maps to `EtlError::Network`, which `is_transient()` reports as `true`, so the retry loop waits and re-runs the whole login-then-query handshake. Only `401`/`403` at login become `EtlError::Auth` (permanent — wrong credentials will never succeed). Bucketing every login failure as "auth failed" would abort a run that a single retry would have completed.
 """

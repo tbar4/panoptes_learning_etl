@@ -51,11 +51,11 @@ id = "185081e6-eb9d-4e1b-967d-f4e8999d7f0f"
 type = "MultipleChoice"
 prompt.prompt = "A run writes 500 rows, dies halfway, and is retried. Which of the four seams is what keeps the retry from writing duplicate rows?"
 prompt.distractors = [
-  "The `Source` trait — a uniform async interface for every source",
-  "The E/T/L split — three separable stages with typed boundaries",
-  "The run ledger — an append-only record of what ran and when",
+  "The `Source` trait's uniform async interface — re-running calls the same `extract`, so it refetches identical rows and nothing new",
+  "The E/T/L split into typed stages — the `Transform` step compares each new row against the ones already loaded and drops matches",
+  "The run ledger's append-only history — the retry reads the last recorded offset and resumes past rows already written",
 ]
-answer.answer = "Idempotent, content-addressed writes — a row's id is a hash of its content, so a re-written row is recognized and skipped"
+answer.answer = "Content-addressed idempotent writes — a row's id is a hash of its content, so a re-run recognizes the row and skips it"
 context = """
 Content-addressing derives each row's id from a hash of its own content, so the *same* row always hashes to the *same* id. An idempotent sink tracks the ids it has already written and skips repeats, so a re-run writes zero new rows — which is exactly what makes "just run it again" a safe response to any failure. The other three seams are real and important, but they are not the one that makes re-runs safe: that is seam 4, installed in Part IV and spent again in Part VI (embeddings are never recomputed).
 """
@@ -66,11 +66,11 @@ id = "c9a7313a-9900-405e-b6d3-0e4c52c32245"
 type = "MultipleChoice"
 prompt.prompt = "Your HTTP source gets a `404 Not Found` for a query. How should the error be classified, and what should the retry loop do?"
 prompt.distractors = [
-  "Transient — retry with exponential backoff until it succeeds",
-  "Transient — retry, but only if a `Retry-After` header is present",
-  "It depends on the `5xx`/`4xx` split — a `404` is a server error, so transient",
+  "Transient — retry with exponential backoff, since the resource may appear on a later attempt",
+  "Transient — retry it, but only when the response also carries a `Retry-After` header",
+  "It depends on the `4xx`/`5xx` line — a `404` is server-side, so it counts as transient",
 ]
-answer.answer = "Permanent — do not retry; an unchanged request will get the identical 404 every time"
+answer.answer = "Permanent — do not retry; the same unchanged request will get the identical 404 every time"
 context = """
 A `404` (like `400`, `401`, `403`) means *your request* was wrong — bad URL, bad input, bad credentials. Retrying an unchanged request gets the identical rejection, so it is permanent and must surface immediately. The classic ETL bug is bucketing every non-`2xx` as transient, which makes the retry loop hammer a nonexistent endpoint forever. Only `429` (slow down) and `5xx` (server broke, may recover) are transient.
 """
@@ -81,11 +81,11 @@ id = "6576ab17-c751-47a1-b5e2-b1dcd97faba2"
 type = "MultipleChoice"
 prompt.prompt = "In the E/T/L split, `Source::extract` and `Sink::load` are `async`, but one stage is a plain synchronous function. Which, and why?"
 prompt.distractors = [
-  "`Source` — extraction is just reading, so it never needs to await anything",
-  "`Sink` — writing to disk is synchronous, so loading needs no async",
-  "All three are async; there is no purely synchronous stage",
+  "`Source` — extraction only reads the incoming bytes and never awaits anything, so `extract` is really synchronous",
+  "`Sink` — writing rows out to a local file is an ordinary blocking disk call, so `load` needs no async at all",
+  "None is synchronous — all three of them cross an I/O boundary, so each stage must be declared `async`",
 ]
-answer.answer = "`Transform` — parsing touches no network, clock, or disk, so it is a pure function that can be exhaustively unit-tested"
+answer.answer = "`Transform` — parsing touches no network, clock, or disk, so it is a pure function that unit-tests exhaustively"
 context = """
 `Transform::transform(&self, raw: &RawRecord) -> Result<Vec<Row>, EtlError>` is pure and synchronous on purpose. Parsing is the stage you most want to test exhaustively, and a pure function with no I/O is trivial to test — no mock server, no clock, no async runtime. `Source` and `Sink` are async precisely because they *do* touch the outside world.
 """

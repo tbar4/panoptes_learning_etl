@@ -91,11 +91,11 @@ id = "936c05ee-867e-415b-a447-f527d5cec9d9"
 type = "MultipleChoice"
 prompt.prompt = "A request fails with `429 Too Many Requests` carrying `Retry-After: 8`, mapped to `EtlError::RateLimited { retry_after_secs: 8 }`. The policy is `base_delay: 200ms`. What does `with_retry` do?"
 prompt.distractors = [
-  "Returns the error immediately — a 429 is a client error and not worth retrying",
-  "Retries after the computed 200ms exponential backoff, ignoring the header",
-  "Retries after 200ms on the first attempt and 8s only on later attempts",
+  "Returns the error at once — a `429` is a client-side `4xx`, so it is not worth retrying",
+  "Retries after the computed 200ms exponential backoff, disregarding the `Retry-After` header value",
+  "Retries after 200ms on the first attempt, and honors the 8-second header only on later ones",
 ]
-answer.answer = "Retries after sleeping 8 seconds — the server-supplied Retry-After wins over the computed backoff"
+answer.answer = "Retries after sleeping 8 seconds — the server's `Retry-After` overrides the computed backoff"
 context = """
 `RateLimited` is transient (`is_transient()` is true), so `with_retry` retries it. When computing the delay it calls `err.retry_after()` first, and only falls back to the exponential formula when that returns `None`. A `429` populates `retry_after_secs`, so `retry_after()` returns `Some(8s)` and that wins — the server told you how long to wait, and respecting it is the whole point of the header. A `404`, by contrast, would be `EtlError::Permanent`, not transient, and would return immediately.
 """
@@ -106,11 +106,11 @@ id = "e5d0415c-c165-4aaa-8d9d-37f42a5e7cb7"
 type = "MultipleChoice"
 prompt.prompt = "`SpaceDevsSource::extract` follows the `next` cursor page by page. Under normal operation, what ends the loop — and why does the code also keep a `HashSet` of visited URLs?"
 prompt.distractors = [
-  "A fixed page limit ends it; the HashSet deduplicates rows across pages",
-  "The HashSet ends it once every URL has been seen; `next: null` is just an optimization",
-  "The loop runs a fixed number of times set by `limit=100`; the HashSet caches responses",
+  "A fixed maximum page count drains the loop; the HashSet deduplicates rows repeated across the pages",
+  "The HashSet drains the loop once every URL has been visited once; `next: null` is only an optimization",
+  "The loop runs a fixed number of times set by `limit=100`; the HashSet caches page responses so none refetches",
 ]
-answer.answer = "`next: null` (deserialized to `None`) ends the loop; the HashSet guards against a buggy server whose `next` points back at an already-fetched page, which would otherwise loop forever"
+answer.answer = "`next: null` (as `None`) drains the loop; the HashSet guards a server whose `next` points at a fetched page"
 context = """
 Termination under a correct server is the `next` field arriving as JSON `null`, which serde maps to `None`, draining the `while let Some(url) = next` loop. The `visited` set is a separate defense: a buggy or malicious server can hand back a `next` that points at a page you already fetched (or at itself), and "follow `next` until null" would then never terminate. Re-fetching a URL already in the set is rejected as `EtlError::Parse("pagination cycle …")` — a permanent error, since retrying the same broken response would just cycle again.
 """
