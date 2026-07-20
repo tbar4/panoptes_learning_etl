@@ -17,7 +17,7 @@ How the structs, enums, traits, and functions of the finished `panoptes_etl` con
 Each source extracts raw bytes, a transform parses them into typed `Row`s, and an idempotent sink appends JSONL that `panoptes-gen` reads. The `Executor` runs the pipelines in dependency order — retrying transient failures, gating on upstream failure, skipping sources still fresh — and the retrieval arc embeds the prose fields into a vector index.
 
 ```mermaid
-%%{init:{'theme':'base','themeVariables':{'fontSize':'13px','lineColor':'#7c8b9a','textColor':'#1b2530','primaryColor':'#e9eef3','primaryBorderColor':'#9fb0bf','primaryTextColor':'#1b2530','clusterBkg':'#fbfcfd','clusterBorder':'#cbd5de'}}}%%
+%%{init:{'theme':'base','flowchart':{'htmlLabels':false},'themeVariables':{'fontSize':'13px','lineColor':'#7c8b9a','textColor':'#1b2530','primaryColor':'#e9eef3','primaryBorderColor':'#9fb0bf','primaryTextColor':'#1b2530','clusterBkg':'#fbfcfd','clusterBorder':'#cbd5de'}}}%%
 flowchart TB
   cli{{"panoptes-etl CLI · run · backfill · embed · status"}}:::bin
   ct[("CelesTrak · open TLE GET")]:::ext --> csrc["CelestrakSource"]:::src
