@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](./intro.md)
+[The Architecture at a Glance](./architecture.md)
 
 # Part I — Foundations
 

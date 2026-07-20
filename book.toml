@@ -15,6 +15,7 @@ edition = "2021"
 default-theme = "navy"
 preferred-dark-theme = "navy"
 additional-css = ["theme/quiz-extra.css"]
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.html.fold]
 enable = true
@@ -29,3 +30,6 @@ copyable = true
 # Install with: cargo install mdbook-quiz --locked --version 0.4.0
 # cache-answers persists the reader's answers in localStorage across reloads.
 cache-answers = true
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
