@@ -1,0 +1,377 @@
+<title>Panoptes ETL — Type & Data Flow</title>
+<style>
+  :root {
+    --bg: #f5f7fa; --surface: #ffffff; --ink: #15202b; --ink-soft: #55636f; --line: #dbe2ea;
+    --accent: #1f8f80; --accent-soft: #e6f2f0;
+    --core: #1f8f80; --gen: #4a6fa5; --harness: #b9791f; --coding: #7d5ba6;
+    --plate: #f3f5f8; --plate-line: #d6dee7;
+    --shadow: 0 1px 2px rgba(20,32,43,.06), 0 8px 24px rgba(20,32,43,.06);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d131b; --surface: #141d27; --ink: #d9e2ec; --ink-soft: #8ea0b1; --line: #233140;
+      --accent: #5bb6a7; --accent-soft: #14302c;
+      --core: #5bb6a7; --gen: #7d9dd0; --harness: #d59a45; --coding: #a982c9;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35); color-scheme: dark;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f7fa; --surface: #ffffff; --ink: #15202b; --ink-soft: #55636f; --line: #dbe2ea;
+    --accent: #1f8f80; --accent-soft: #e6f2f0;
+    --core: #1f8f80; --gen: #4a6fa5; --harness: #b9791f; --coding: #7d5ba6; color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d131b; --surface: #141d27; --ink: #d9e2ec; --ink-soft: #8ea0b1; --line: #233140;
+    --accent: #5bb6a7; --accent-soft: #14302c;
+    --core: #5bb6a7; --gen: #7d9dd0; --harness: #d59a45; --coding: #a982c9; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: clamp(1.5rem, 4vw, 4rem) clamp(1.1rem, 4vw, 2.5rem) 5rem; }
+
+  header.masthead { border-bottom: 1px solid var(--line); padding-bottom: 1.8rem; margin-bottom: 2.6rem; }
+  .eyebrow { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .72rem; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--accent); font-weight: 600; margin: 0 0 .9rem; }
+  h1 { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: clamp(1.7rem, 3.6vw, 2.5rem); line-height: 1.12; letter-spacing: -.01em; margin: 0 0 .7rem;
+    text-wrap: balance; font-weight: 600; }
+  .lede { color: var(--ink-soft); max-width: 66ch; font-size: 1.03rem; margin: 0 0 1.4rem; }
+  .deps { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .9rem; }
+  .crate { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .8rem; font-weight: 600;
+    padding: .22rem .55rem; border-radius: 6px; border: 1px solid; white-space: nowrap; }
+  .crate.core { color: var(--core); border-color: color-mix(in srgb, var(--core) 45%, transparent); background: color-mix(in srgb, var(--core) 9%, transparent); }
+  .crate.gen  { color: var(--gen);  border-color: color-mix(in srgb, var(--gen) 45%, transparent);  background: color-mix(in srgb, var(--gen) 9%, transparent); }
+  .crate.harness { color: var(--harness); border-color: color-mix(in srgb, var(--harness) 45%, transparent); background: color-mix(in srgb, var(--harness) 9%, transparent); }
+  .crate.coding { color: var(--coding); border-color: color-mix(in srgb, var(--coding) 45%, transparent); background: color-mix(in srgb, var(--coding) 9%, transparent); }
+  .arrow { color: var(--ink-soft); font-family: ui-monospace, Menlo, monospace; }
+
+  section { margin-top: 3rem; }
+  h2 { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 1.18rem; letter-spacing: -.005em;
+    margin: 0 0 .35rem; font-weight: 600; display: flex; align-items: baseline; gap: .7rem; }
+  h2 .num { font-size: .78rem; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 5px; padding: .05rem .4rem; font-weight: 600; }
+  .sub { color: var(--ink-soft); font-size: .95rem; margin: 0 0 1.3rem; max-width: 68ch; }
+
+  .figure { background: var(--plate); border: 1px solid var(--plate-line); border-radius: 12px;
+    padding: 1.3rem 1rem; overflow-x: auto; box-shadow: var(--shadow); }
+  .figure .mermaid { min-width: 640px; display: flex; justify-content: center; }
+  figcaption { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .74rem; color: #5c6b78;
+    letter-spacing: .03em; margin-top: .9rem; text-align: center; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 11px;
+    padding: 1.1rem 1.15rem 1.25rem; box-shadow: var(--shadow); border-top: 3px solid var(--tint); }
+  .card.core { --tint: var(--core); } .card.gen { --tint: var(--gen); }
+  .card.harness { --tint: var(--harness); } .card.coding { --tint: var(--coding); }
+  .card h3 { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .96rem; margin: 0 0 .2rem; color: var(--tint); font-weight: 600; }
+  .card .role { font-size: .79rem; color: var(--ink-soft); margin: 0 0 .9rem; }
+  .card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .48rem; }
+  .card li { display: flex; gap: .5rem; align-items: baseline; font-size: .845rem; }
+  .kind { flex: none; width: 3.4rem; font-family: ui-monospace, Menlo, monospace; font-size: .64rem;
+    text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); padding-top: .12rem; }
+  .tname { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 600; color: var(--ink); }
+  .tdesc { color: var(--ink-soft); }
+
+  .legend { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 1.15rem 1.3rem; box-shadow: var(--shadow); }
+  .legend ul { margin: .3rem 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap: .55rem 1.4rem; }
+  .legend li { font-size: .86rem; color: var(--ink-soft); display: flex; gap: .55rem; align-items: baseline; }
+  .glyph { flex: none; font-family: ui-monospace, Menlo, monospace; color: var(--ink); font-weight: 600; min-width: 3.2rem; }
+
+  footer { margin-top: 3.2rem; padding-top: 1.4rem; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: .82rem; max-width: 74ch; }
+  footer code { font-family: ui-monospace, Menlo, monospace; color: var(--ink); }
+  a { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Rust workspace · finished architecture</p>
+    <h1>Panoptes ETL: types &amp; data flow</h1>
+    <p class="lede">The space-data ETL that feeds the Panoptes harness — the complete four-crate project the sequel course builds. Four sources normalize into one <span class="mono">Row</span> enum written as JSONL; a DAG executor schedules the pipelines; a retrieval arc embeds the prose. Every arc installs one seam an orchestrator needs.</p>
+    <div class="deps">
+      <span class="crate gen">etl-sources</span><span class="arrow">→</span>
+      <span class="crate harness">etl-orchestrate</span><span class="arrow">→</span>
+      <span class="crate coding">panoptes-etl</span>
+      <span class="arrow" style="margin:0 .1rem;">all&nbsp;→</span>
+      <span class="crate core">etl-core</span>
+      <span style="color:var(--ink-soft); font-size:.82rem;">— <span class="mono">etl-orchestrate</span> depends on <span class="mono">core</span> only; it schedules <span class="mono">dyn Source</span> and never names a concrete source.</span>
+    </div>
+  </header>
+
+  <section>
+    <h2><span class="num">01</span> The pipeline</h2>
+    <p class="sub">Each source extracts raw bytes, a transform parses them into typed <span class="mono">Row</span>s, and an idempotent sink appends JSONL that <span class="mono">panoptes-gen</span> reads. The <span class="mono">Executor</span> runs the pipelines in dependency order — retrying transient failures, gating on upstream failure, skipping sources still fresh — and the retrieval arc embeds the prose fields into a vector index.</p>
+    <figure class="figure">
+      <pre class="mermaid">
+%%{init:{'theme':'base','flowchart':{'htmlLabels':false},'themeVariables':{'fontSize':'12.5px','lineColor':'#5b6b7a','textColor':'#1b2530','primaryColor':'#e9eef3','primaryBorderColor':'#9fb0bf','primaryTextColor':'#1b2530','clusterBkg':'#fbfcfd','clusterBorder':'#cbd5de'}}}%%
+flowchart TB
+  cli{{"panoptes-etl CLI · run · backfill · embed · status"}}:::bin
+  ct[("CelesTrak · open TLE GET")]:::ext --> csrc["CelestrakSource"]:::src
+  st[("Space-Track · login + cookie")]:::ext --> ssrc["SpaceTrackSource"]:::src
+  sd[("TheSpaceDevs · paginated")]:::ext --> dsrc["SpaceDevsSource"]:::src
+  bucket["TokenBucket · rate limit"]:::src -.-> ssrc
+  retry["with_retry · backoff on transient EtlError"]:::core -.wraps.-> dsrc
+  csrc --> raw["RawRecord"]:::core
+  ssrc --> raw
+  dsrc --> raw
+  raw --> xf["Transform · parse TLE / CDM / launch JSON"]:::src
+  xf --> row["Row · SpaceObject · Conjunction · Launch"]:::core
+  row --> idem["IdempotentSink · content_id() dedupe"]:::core
+  idem --> jsonl[("space_objects · conjunctions · launches · .jsonl")]:::store
+  exec["Executor · Dag topological order · gate on failure · skip fresh"]:::orch
+  exec -.drives.-> csrc
+  exec -.drives.-> ssrc
+  exec -.drives.-> dsrc
+  ledger["Ledger · RunRecord · watermark"]:::core -.records.-> exec
+  jsonl --> embed["EmbedSink · Embedder → VoyageEmbedder · prose only"]:::core
+  embed --> vec[("embeddings.jsonl")]:::store
+  vec --> idx["VectorIndex::top_k() · cosine"]:::core
+  jsonl --> gen[("panoptes-gen reads the file contract")]:::ext
+  cli -.-> exec
+
+  classDef core fill:#e2efec,stroke:#1f8f80,color:#12231f;
+  classDef src fill:#e6ecf5,stroke:#4a6fa5,color:#182436;
+  classDef orch fill:#f6ead4,stroke:#b9791f,color:#3a2a10;
+  classDef bin fill:#efe6f4,stroke:#7d5ba6,color:#2c1f36;
+  classDef store fill:#eef1f5,stroke:#6b7a89,color:#1b2530;
+  classDef ext fill:#f0f1f3,stroke:#9aa7b3,color:#3a444e,stroke-dasharray:4 3;
+      </pre>
+      <figcaption>teal = etl-core · slate = etl-sources · amber = etl-orchestrate · plum = panoptes-etl · cylinders = files · dashed = external API / downstream</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span> Type relationships</h2>
+    <p class="sub">The E/T/L trait triad — <span class="mono">Source</span>, <span class="mono">Transform</span>, <span class="mono">Sink</span> — is the spine. Concrete sources implement <span class="mono">Source</span>; the domain types are the payload of the <span class="mono">Row</span> enum the sink writes; and <span class="mono">Pipeline</span>/<span class="mono">Executor</span> compose the traits as boxed trait objects, which is what lets the orchestrator stay ignorant of any concrete source.</p>
+    <figure class="figure">
+      <pre class="mermaid">
+%%{init:{'theme':'neutral','themeVariables':{'fontSize':'12px','lineColor':'#5b6b7a','textColor':'#1b2530','primaryColor':'#eef1f5','primaryBorderColor':'#9fb0bf','primaryTextColor':'#1b2530'}}}%%
+classDiagram
+  namespace etl_core {
+    class NoradId {
+      &lt;&lt;newtype&gt;&gt;
+      +u32 inner
+    }
+    class OrbitClass {
+      &lt;&lt;enum&gt;&gt;
+      LEO
+      MEO
+      GEO
+      HEO
+    }
+    class OrbitalElements {
+      +DateTime epoch
+      +f64 inclination_deg
+      +f64 eccentricity
+      +f64 mean_motion_rev_per_day
+      +orbit_class() OrbitClass
+      +period_minutes() f64
+    }
+    class SpaceObject {
+      +NoradId norad_id
+      +String name
+      +String intl_designator
+      +OrbitalElements elements
+    }
+    class Conjunction {
+      +String id
+      +DateTime tca
+      +f64 miss_distance_km
+      +f64 collision_probability
+      +NoradId primary
+      +NoradId secondary
+    }
+    class Launch {
+      +String id
+      +String name
+      +DateTime net
+      +String provider
+      +String description
+    }
+    class Row {
+      &lt;&lt;enum&gt;&gt;
+      SpaceObject
+      Conjunction
+      Launch
+    }
+    class EtlError {
+      &lt;&lt;enum&gt;&gt;
+      Network
+      RateLimited
+      Auth
+      Permanent
+      Parse
+      Io
+    }
+    class RawRecord {
+      +String source
+      +String payload
+      +DateTime fetched_at
+    }
+    class Source {
+      &lt;&lt;trait&gt;&gt;
+      +name() str
+      +extract() Vec~RawRecord~
+    }
+    class Transform {
+      &lt;&lt;trait&gt;&gt;
+      +transform(RawRecord) Vec~Row~
+    }
+    class Sink {
+      &lt;&lt;trait&gt;&gt;
+      +load(rows) usize
+    }
+    class Ledger {
+      +append(RunRecord)
+      +last_success(source) RunRecord
+    }
+    class RunRecord {
+      +String source
+      +Outcome outcome
+      +DateTime watermark
+      +usize rows_written
+    }
+    class Outcome {
+      &lt;&lt;enum&gt;&gt;
+      Success
+      Failed
+    }
+    class Embedder {
+      &lt;&lt;trait&gt;&gt;
+      +embed(texts) vectors
+    }
+    class VectorIndex {
+      +top_k(query, k) hits
+    }
+  }
+  namespace etl_sources {
+    class CelestrakSource
+    class SpaceTrackSource
+    class SpaceDevsSource
+    class TokenBucket
+    class VoyageEmbedder
+  }
+  namespace etl_orchestrate {
+    class Dag {
+      +add_task(id) TaskId
+      +add_dep(task, dep)
+      +topological_order() Vec~TaskId~
+    }
+    class Pipeline {
+      +Box~Source~ source
+      +Box~Transform~ transform
+      +Box~Sink~ sink
+    }
+    class Executor {
+      +run() RunReport
+    }
+  }
+  SpaceObject *-- NoradId
+  SpaceObject *-- OrbitalElements
+  OrbitalElements ..> OrbitClass
+  Conjunction *-- NoradId
+  Row *-- SpaceObject
+  Row *-- Conjunction
+  Row *-- Launch
+  RunRecord *-- Outcome
+  CelestrakSource ..|> Source
+  SpaceTrackSource ..|> Source
+  SpaceDevsSource ..|> Source
+  VoyageEmbedder ..|> Embedder
+  Pipeline o-- Source
+  Pipeline o-- Transform
+  Pipeline o-- Sink
+  Executor *-- Dag
+  Executor o-- Pipeline
+  Executor *-- Ledger
+
+  classDef coreCls fill:#e2efec,stroke:#1f8f80,color:#12231f;
+  classDef srcCls fill:#e6ecf5,stroke:#4a6fa5,color:#182436;
+  classDef orchCls fill:#f6ead4,stroke:#b9791f,color:#3a2a10;
+  cssClass "NoradId,OrbitClass,OrbitalElements,SpaceObject,Conjunction,Launch,Row,EtlError,RawRecord,Source,Transform,Sink,Ledger,RunRecord,Outcome,Embedder,VectorIndex" coreCls
+  cssClass "CelestrakSource,SpaceTrackSource,SpaceDevsSource,TokenBucket,VoyageEmbedder" srcCls
+  cssClass "Dag,Pipeline,Executor" orchCls
+      </pre>
+      <figcaption>◆── composition · ○── aggregation (boxed trait object) · ┈▷ implements · «enum» / «trait» / «newtype» stereotypes · ~T~ = generic</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span> Per-crate inventory</h2>
+    <p class="sub">One seam per arc; the dependency arrow always points at <span class="mono">etl-core</span>.</p>
+    <div class="cards">
+      <div class="card core">
+        <h3>etl-core</h3>
+        <p class="role">The seams. Domain model, the E/T/L traits, and everything the orchestrator schedules against.</p>
+        <ul>
+          <li><span class="kind">enum</span><span><span class="tname">OrbitClass</span> · <span class="tname">EtlError</span> · <span class="tname">Row</span> · <span class="tname">Outcome</span></span></li>
+          <li><span class="kind">newty</span><span><span class="tname">NoradId</span> · <span class="tdesc">id-safety</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">SpaceObject</span> · <span class="tname">OrbitalElements</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">Conjunction</span> <span class="tdesc">(keystone)</span> · <span class="tname">Launch</span></span></li>
+          <li><span class="kind">trait</span><span><span class="tname">Source</span> · <span class="tname">Transform</span> · <span class="tname">Sink</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">Ledger</span> · <span class="tname">JsonlSink</span> · <span class="tname">IdempotentSink</span></span></li>
+          <li><span class="kind">fn</span><span><span class="tname">with_retry</span> · <span class="tname">content_id</span></span></li>
+          <li><span class="kind">trait</span><span><span class="tname">Embedder</span> · <span class="tname">VectorIndex</span> · <span class="tname">cosine</span></span></li>
+        </ul>
+      </div>
+      <div class="card gen">
+        <h3>etl-sources</h3>
+        <p class="role">Concrete sources + the machinery each API forces. Depends only on core.</p>
+        <ul>
+          <li><span class="kind">fn</span><span><span class="tname">parse_tle</span> · <span class="tdesc">checksum, epoch</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">CelestrakSource</span> <span class="tdesc">(+ transform)</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">SpaceTrackSource</span> · <span class="tname">Credentials</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">SpaceDevsSource</span> <span class="tdesc">(pagination)</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">TokenBucket</span> · <span class="tdesc">rate limit</span></span></li>
+          <li><span class="kind">fn</span><span><span class="tname">classify_status</span> · <span class="tdesc">taxonomy funnel</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">VoyageEmbedder</span></span></li>
+        </ul>
+      </div>
+      <div class="card harness">
+        <h3>etl-orchestrate</h3>
+        <p class="role">The DAG executor. Depends on core ONLY — proven by <span class="mono">cargo tree</span>.</p>
+        <ul>
+          <li><span class="kind">struct</span><span><span class="tname">Dag</span> · <span class="tname">TaskId</span></span></li>
+          <li><span class="kind">fn</span><span><span class="tname">topological_order</span> · <span class="tdesc">Kahn, cycle-safe</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">Pipeline</span> · <span class="tdesc">boxed E/T/L</span></span></li>
+          <li><span class="kind">struct</span><span><span class="tname">Executor</span> · <span class="tname">RunReport</span></span></li>
+        </ul>
+      </div>
+      <div class="card coding">
+        <h3>panoptes-etl</h3>
+        <p class="role">The binary. The only crate that names concrete sources and wires them into the DAG.</p>
+        <ul>
+          <li><span class="kind">bin</span><span><span class="tname">Cli</span> · <span class="tname">Command</span></span></li>
+          <li><span class="kind">cmd</span><span><span class="tname">run</span> · <span class="tname">backfill</span> · <span class="tname">status</span></span></li>
+          <li><span class="kind">cmd</span><span><span class="tname">embed</span> <span class="tdesc">(prose → vectors)</span></span></li>
+          <li><span class="kind">fn</span><span><span class="tname">build_executor</span> <span class="tdesc">(wiring)</span></span></li>
+          <li><span class="kind">note</span><span><span class="tdesc">NASA source = your capstone</span></span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span> Reading the diagrams</h2>
+    <div class="legend">
+      <ul>
+        <li><span class="glyph">◆──</span><span>Composition — the struct owns the value (every <span class="mono">SpaceObject</span> owns its <span class="mono">OrbitalElements</span>).</span></li>
+        <li><span class="glyph">○──</span><span>Aggregation — holds a boxed trait object (<span class="mono">Pipeline</span> holds a <span class="mono">Box&lt;dyn Source&gt;</span>).</span></li>
+        <li><span class="glyph">┈▷</span><span>Trait implementation — three sources implement <span class="mono">Source</span>; <span class="mono">VoyageEmbedder ▷ Embedder</span>.</span></li>
+        <li><span class="glyph">«enum»</span><span>A closed set — the transform parses raw bytes straight into these, so bad data fails at the boundary.</span></li>
+        <li><span class="glyph">▭</span><span>Cylinders are JSONL files on disk; dashed nodes are external APIs or the downstream <span class="mono">panoptes-gen</span>.</span></li>
+        <li><span class="glyph">colour</span><span><span class="mono" style="color:var(--core)">core</span> · <span class="mono" style="color:var(--gen)">sources</span> · <span class="mono" style="color:var(--harness)">orchestrate</span> · <span class="mono" style="color:var(--coding)">bin</span>.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    Derived from the finished reference implementation (four crates, 65 passing tests). The load-bearing move is that <code>etl-orchestrate</code> compiles depending on <code>etl-core</code> alone — it schedules <code>dyn Source</code> and cannot see <code>etl-sources</code>, so a new source (your NASA capstone) drops into the DAG with zero changes to the executor. The keystone entity is <code>Conjunction</code> — a real conjunction data message is the ground truth of a Panoptes <code>ca_geo</code> collision-avoidance vignette.
+  </footer>
+</div>
+
+<script src="mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });</script>

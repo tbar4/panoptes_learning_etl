@@ -36,13 +36,12 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/.crates.toml
             ~/.cargo/.crates2.json
-          key: cargo-bins-mdbook-0.4.52-quiz-0.4.0-mermaid-0.14.0-${{ runner.os }}
+          key: cargo-bins-mdbook-0.4.52-quiz-0.4.0-${{ runner.os }}
 
       - name: Install mdBook and mdbook-quiz
         run: |
           cargo install mdbook --locked --version 0.4.52
           cargo install mdbook-quiz --locked --version 0.4.0
-          cargo install mdbook-mermaid --locked --version 0.14.0
 
       - name: Build
         run: mdbook build
