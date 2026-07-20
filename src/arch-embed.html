@@ -60,6 +60,15 @@
     padding: 1.3rem 1rem; overflow-x: auto; box-shadow: var(--shadow); }
   .figure .mermaid { min-width: 640px; display: flex; justify-content: center; }
   .figure svg { display: block; height: auto; margin: 0 auto; }
+  /* Interactive pan/zoom viewport for the diagrams */
+  .figure { height: 560px; overflow: hidden; position: relative; padding: 0; cursor: grab; touch-action: none; }
+  .figure.grabbing { cursor: grabbing; }
+  .figure .zoom-inner { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+  .figure .zoom-inner svg { display: block; margin: 0; max-width: none; }
+  .zoom-controls { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; z-index: 5; }
+  .zoom-controls button { font: 600 15px ui-monospace, "SF Mono", Menlo, monospace; width: 30px; height: 30px; border-radius: 7px; border: 1px solid #cfd8e2; background: rgba(255,255,255,.92); color: #1b2530; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(20,32,43,.08); }
+  .zoom-controls button:hover { background: #fff; border-color: #9fb0bf; }
+  .zoom-hint { position: absolute; bottom: 9px; left: 13px; font: 11px ui-monospace, Menlo, monospace; color: #64748b; opacity: .75; pointer-events: none; user-select: none; }
   figcaption { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .74rem; color: #5c6b78;
     letter-spacing: .03em; margin-top: .9rem; text-align: center; }
 
@@ -205,3 +214,80 @@
     Derived from the finished reference implementation (four crates, 65 passing tests). The load-bearing move is that <code>etl-orchestrate</code> compiles depending on <code>etl-core</code> alone — it schedules <code>dyn Source</code> and cannot see <code>etl-sources</code>, so a new source (your NASA capstone) drops into the DAG with zero changes to the executor. The keystone entity is <code>Conjunction</code> — a real conjunction data message is the ground truth of a Panoptes <code>ca_geo</code> collision-avoidance vignette.
   </footer>
 </div>
+
+<script>
+(function () {
+  function initZoom(fig) {
+    var svg = fig.querySelector('svg');
+    if (!svg || fig.dataset.zoom) return;
+    fig.dataset.zoom = '1';
+    var vb = (svg.getAttribute('viewBox') || '').split(/[ ,]+/).map(Number);
+    var nw = vb[2] || svg.getBoundingClientRect().width || 800;
+    var nh = vb[3] || svg.getBoundingClientRect().height || 600;
+    var inner = document.createElement('div');
+    inner.className = 'zoom-inner';
+    fig.insertBefore(inner, svg);
+    inner.appendChild(svg);
+    svg.style.width = nw + 'px'; svg.style.height = nh + 'px'; svg.style.maxWidth = 'none';
+    var scale = 1, tx = 0, ty = 0, fit = 1, userZoomed = false;
+    function apply() { inner.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+    function computeFit() {
+      var r = fig.getBoundingClientRect();
+      if (r.width < 40) return;
+      fit = Math.min(r.width / nw, r.height / nh) * 0.94;
+      scale = fit; userZoomed = false;
+      tx = (r.width - nw * scale) / 2; ty = (r.height - nh * scale) / 2; apply();
+    }
+    function clamp(s) { return Math.max(fit * 0.8, Math.min(s, fit * 12)); }
+    function zoomAt(cx, cy, f) {
+      var ns = clamp(scale * f); if (ns === scale) return;
+      var wx = (cx - tx) / scale, wy = (cy - ty) / scale;
+      scale = ns; tx = cx - wx * scale; ty = cy - wy * scale; userZoomed = true; apply();
+    }
+    var ctr = document.createElement('div');
+    ctr.className = 'zoom-controls';
+    ctr.innerHTML = '<button type="button" data-z="out" aria-label="Zoom out">−</button>' +
+                    '<button type="button" data-z="fit" aria-label="Fit to view">⤢</button>' +
+                    '<button type="button" data-z="in" aria-label="Zoom in">+</button>';
+    fig.appendChild(ctr);
+    var hint = document.createElement('div');
+    hint.className = 'zoom-hint';
+    hint.textContent = 'drag to pan · ⌘/ctrl+scroll or +/− to zoom';
+    fig.appendChild(hint);
+    ctr.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      var r = fig.getBoundingClientRect();
+      if (b.dataset.z === 'fit') { computeFit(); return; }
+      zoomAt(r.width / 2, r.height / 2, b.dataset.z === 'in' ? 1.3 : 1 / 1.3);
+    });
+    fig.addEventListener('wheel', function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      var r = fig.getBoundingClientRect();
+      zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+    }, { passive: false });
+    var drag = false, lx, ly;
+    fig.addEventListener('pointerdown', function (e) {
+      if (e.target.closest('.zoom-controls')) return;
+      drag = true; lx = e.clientX; ly = e.clientY; fig.classList.add('grabbing');
+      try { fig.setPointerCapture(e.pointerId); } catch (x) {}
+    });
+    fig.addEventListener('pointermove', function (e) {
+      if (!drag) return; tx += e.clientX - lx; ty += e.clientY - ly; lx = e.clientX; ly = e.clientY; userZoomed = true; apply();
+    });
+    function end() { drag = false; fig.classList.remove('grabbing'); }
+    fig.addEventListener('pointerup', end);
+    fig.addEventListener('pointercancel', end);
+    fig.addEventListener('dblclick', function (e) {
+      var r = fig.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, 1.6);
+    });
+    if (window.ResizeObserver) new ResizeObserver(function () { if (!userZoomed) computeFit(); }).observe(fig);
+    window.addEventListener('resize', function () { if (!userZoomed) computeFit(); });
+    computeFit();
+    [120, 400, 1000].forEach(function (t) { setTimeout(function () { if (!userZoomed) computeFit(); }, t); });
+  }
+  function initAll() { document.querySelectorAll('.figure').forEach(initZoom); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAll);
+  else initAll();
+})();
+</script>
