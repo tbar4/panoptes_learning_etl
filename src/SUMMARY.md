@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](./intro.md)
+[The Panoptes Thesis at a Glance](./thesis-architecture.md)
 [The Architecture at a Glance](./architecture.md)
 
 # Part I — Foundations
